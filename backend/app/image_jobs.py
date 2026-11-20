@@ -252,6 +252,33 @@ def process_one(engine, directory: Path, provider=generate_image) -> bool:
     return True
 
 
+def cancel_job(engine, identifier: str) -> JobView:
+    with Session(engine) as session, session.begin():
+        # Shares the row lock with the worker's queued -> running claim.
+        row = session.get(ImageJob, identifier, with_for_update=True)
+        if row is None:
+            raise HTTPException(404, '任务不存在。')
+        if row.status == 'cancelled':
+            return view(row)
+        if row.status == 'running':
+            raise HTTPException(409, '任务已开始执行，可能已调用服务商，当前无法取消。请等待结果。')
+        if row.status != 'queued':
+            raise HTTPException(409, '任务已结束，无法取消。结果待确认时请先核对服务商记录。')
+        row.status, row.message = 'cancelled', '已取消排队，未调用服务商。'
+        row.updated_at, row.lease_until, row.encrypted_key = now(), None, ''
+        return view(row)
+
+
+def cancel_set(engine, identifier: str):
+    with Session(engine) as session, session.begin():
+        if session.scalar(select(ImageJob.id).where(ImageJob.set_id == identifier).limit(1)) is None:
+            raise HTTPException(404, '套图记录不存在。')
+        # PostgreSQL rechecks status after waiting for a worker's row lock.
+        cancelled = list(session.scalars(update(ImageJob).where(ImageJob.set_id == identifier, ImageJob.status == 'queued').values(status='cancelled', message='已取消排队，未调用服务商。', updated_at=now(), lease_until=None, encrypted_key='').returning(ImageJob.id)))
+        counts = dict(session.execute(select(ImageJob.status, func.count()).where(ImageJob.set_id == identifier).group_by(ImageJob.status)).all())
+        return {'cancelled_count': len(cancelled), 'counts': counts, 'message': f"已取消 {len(cancelled)} 项排队任务。已有图片保留，已开始执行的任务不会被中止。"}
+
+
 def build_image_router(engine, directory: Path):
     router = APIRouter(prefix="/api/image-jobs", tags=["image-jobs"])
 
@@ -288,8 +315,18 @@ def build_image_router(engine, directory: Path):
                 raise HTTPException(404, '套图记录不存在。')
             return {'id': str(set_id), 'name': rows[0].set_name, 'items': [view(row) for row in rows[:200]], 'has_more': len(rows) > 200}
 
+    @router.post('/sets/{set_id}/cancel')
+    def cancel_set_tasks(set_id: UUID, action: Annotated[Literal['cancel'], Form()]):
+        require_database()
+        return cancel_set(engine, str(set_id))
+
+    @router.post('/{job_id}/cancel', response_model=JobView)
+    def cancel_single_task(job_id: UUID, action: Annotated[Literal['cancel'], Form()]):
+        require_database()
+        return cancel_job(engine, str(job_id))
+
     @router.get('/library', response_model=LibraryPage)
-    def library(page: Annotated[int, Query(ge=1, le=100000)] = 1, page_size: Annotated[int, Query(ge=1, le=48)] = 12, status: Literal['all', 'queued', 'running', 'succeeded', 'failed', 'unknown'] = 'succeeded', q: Annotated[str, Query(max_length=200)] = '', product_id: UUID | None = None, template_id: UUID | None = None):
+    def library(page: Annotated[int, Query(ge=1, le=100000)] = 1, page_size: Annotated[int, Query(ge=1, le=48)] = 12, status: Literal['all', 'queued', 'running', 'succeeded', 'failed', 'unknown', 'cancelled'] = 'succeeded', q: Annotated[str, Query(max_length=200)] = '', product_id: UUID | None = None, template_id: UUID | None = None):
         require_database()
         product = cast(ImageJob.product_snapshot, JSON)
         template = cast(ImageJob.template_snapshot, JSON)

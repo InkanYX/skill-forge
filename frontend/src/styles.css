@@ -108,6 +108,10 @@ h3 { font-size: 17px; font-weight: 600; margin: 19px 0 10px; }
 .model-picker .model-selected { border-color: #7196dc; background: #eaf1ff; color: #244e9c; }
 .model-picker small { font-size: 13px; color: #75869e; width: 100%; }
 .image-studio { margin-bottom: 42px; }
+.task-cancel { margin: 16px 0; }
+.cancel-button { color: #9c453d; border-color: #dfb9b5; }
+.cancel-button[aria-busy="true"] { cursor: progress; }
+.job-cancelled { color: #53657d; background: #edf0f5; }
 .library-export { padding: 20px; background: white; border: 1px solid #dce4f0; border-radius: 12px; margin: 22px 0; }
 .library-pick-actions, .export-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .library-pick-actions strong { font-size: 15px; margin-right: auto; }
