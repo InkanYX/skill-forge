@@ -17,6 +17,7 @@ from app.model_configs import FileConfigStore, build_router, probe_models
 from app.image_jobs import build_image_router
 from app.creative_templates import build_creative_router
 from app.products import build_product_router
+from app.image_exports import build_export_router
 
 VERSION = "0.1.0"
 
@@ -79,6 +80,7 @@ def create_app(data_dir: Path | None = None, probe=probe_models, db_url: str | N
     store = DatabaseConfigStore(directory, engine) if engine else FileConfigStore(directory)
     application.include_router(build_router(store, probe))
     application.include_router(build_image_router(engine, directory))
+    application.include_router(build_export_router(engine, directory))
     application.include_router(build_creative_router(engine))
     application.include_router(build_product_router(engine, directory))
     router = APIRouter(prefix="/api")

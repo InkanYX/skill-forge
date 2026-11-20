@@ -3,6 +3,7 @@ import { creativeRequest, type CreativeTemplate, type TemplateSnapshot } from '.
 import { type Product, type ProductSnapshot } from './productApi';
 import { CaseEditor } from './CaseLibrary';
 import RevisionTrail from './RevisionTrail';
+import ExportDownload from './ExportDownload';
 
 interface Artwork {
   id: string; status: string; message: string; config_name: string; model_name: string; prompt: string;
@@ -22,6 +23,7 @@ export default function ArtworkLibrary() {
   const [selected, setSelected] = useState<Artwork>(); const [caseSaved, setCaseSaved] = useState(false); const [caseDirty, setCaseDirty] = useState(false); const [caseBusy, setCaseBusy] = useState(false);
   const [detailError, setDetailError] = useState('');
   const [openError, setOpenError] = useState('');
+  const [picked, setPicked] = useState<string[]>([]); const [pickError, setPickError] = useState('');
   const dialog = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     let active = true;
@@ -80,6 +82,17 @@ export default function ArtworkLibrary() {
   function close() { if (caseBusy || (caseDirty && !window.confirm('案例经验尚未保存，确定关闭吗？'))) return false; setSelected(undefined); setCaseDirty(false); return true; }
   function submitSearch(event: FormEvent) { event.preventDefault(); setQuery(search.trim()); setPage(1); }
   const pages = Math.max(1, Math.ceil((result?.total || 0) / 12));
+  function togglePick(id: string) {
+    setPickError('');
+    if (picked.includes(id)) setPicked(previous => previous.filter(item => item !== id));
+    else if (picked.length >= 50) setPickError('每次最多选择 50 张，请先导出当前选择。');
+    else setPicked(previous => [...previous, id]);
+  }
+  function pickPage() {
+    const next = [...new Set([...picked, ...(result?.items.filter(item => item.status === 'succeeded').map(item => item.id) || [])])];
+    if (next.length > 50) { setPickError('添加本页后将超过 50 张，请先导出当前选择。'); return; }
+    setPicked(next); setPickError('');
+  }
   return <section>
     <div className="section-heading"><div><p className="eyebrow">YOUR CREATIVE OUTPUT</p><h2>作品库</h2></div><a className="button-primary" href="#/studio">开始图片创作</a></div>
     <p className="settings-intro">生成的图片会自动收录在这里。点击图片可查看大图、制作记录、下载，或保存值得复用的成功案例。</p>
@@ -90,9 +103,10 @@ export default function ArtworkLibrary() {
     <div className="form-field"><label htmlFor="artwork-status">状态</label><select id="artwork-status" value={status} onChange={e => { setStatus(e.target.value); setPage(1); }}>{Object.entries(labels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></div></div>
     <div className="artwork-summary"><span role="status">{loading ? '正在读取作品…' : `共 ${result?.total || 0} 项${query ? ` · 搜索“${query}”` : ''}`}</span><div><button type="button" className="button-secondary" onClick={reset}>重置筛选</button><button type="button" className="button-secondary" disabled={loading} onClick={() => setAttempt(value => value + 1)}>刷新</button></div></div>
     {filterError && <p className="feedback feedback-warning">{filterError}</p>}{error && <p className="feedback feedback-error" role="alert">{error} <button className="button-secondary" type="button" onClick={() => setAttempt(value => value + 1)}>重试</button></p>}
-    <div className="artwork-grid" aria-busy={loading}>{result?.items.map(item => <button key={item.id} type="button" className="artwork-card" onClick={() => open(item)} aria-label={`查看作品：${item.product_snapshot.name || item.template_snapshot.name || '自由创作'}，${labels[item.status]}`}>
+    <section className="library-export" aria-label="批量导出"><div className="library-pick-actions"><strong>批量导出 · 已选 {picked.length} 张</strong><button type="button" className="button-secondary" disabled={loading || !result?.items.some(item => item.status === 'succeeded')} onClick={pickPage}>选择本页已完成</button><button type="button" className="button-secondary" disabled={!picked.length} onClick={() => { setPicked([]); setPickError(''); }}>清空选择</button></div><ExportDownload jobIds={picked} count={picked.length} />{pickError && <p className="feedback feedback-warning" role="alert">{pickError}</p>}</section>
+    <div className="artwork-grid" aria-busy={loading}>{result?.items.map(item => <article className="artwork-selectable" key={item.id}><label className="artwork-selection-label"><input type="checkbox" checked={picked.includes(item.id)} disabled={item.status !== "succeeded"} onChange={() => togglePick(item.id)} aria-label={`选择作品：${item.shot_name || item.product_snapshot.sku || item.id}`} />{item.status === "succeeded" ? "选择" : "完成后可选"}</label><button key={item.id} type="button" className="artwork-card" onClick={() => open(item)} aria-label={`查看作品：${item.product_snapshot.name || item.template_snapshot.name || '自由创作'}，${labels[item.status]}`}>
       {item.image_url ? <img src={item.image_url} alt={item.product_snapshot.name || '生成作品'} loading="lazy" /> : <div className="artwork-placeholder"><span className={`job-status job-${item.status}`}>{labels[item.status]}</span><p>{item.message}</p></div>}
-      <div className="artwork-card-body"><div className="artwork-card-title"><strong>{item.product_snapshot.sku || item.template_snapshot.name || '自由创作'}</strong>{item.case_id && <span className="case-badge">已存案例</span>}</div><p>{item.prompt}</p><small>{item.model_name} · {new Date(item.created_at).toLocaleString('zh-CN')}</small><span className="artwork-open">查看详情</span></div></button>)}</div>
+      <div className="artwork-card-body"><div className="artwork-card-title"><strong>{item.product_snapshot.sku || item.template_snapshot.name || '自由创作'}</strong>{item.case_id && <span className="case-badge">已存案例</span>}</div><p>{item.prompt}</p><small>{item.model_name} · {new Date(item.created_at).toLocaleString('zh-CN')}</small><span className="artwork-open">查看详情</span></div></button></article>)}</div>
     {!loading && !error && !result?.items.length && <div className="artwork-empty"><h3>当前没有符合条件的作品</h3><p>先完成一次图片创作，图片就会自动出现在这里。查看排队或失败的任务，请将状态切换为“全部状态”。</p><a className="button-primary" href="#/studio">去创作图片</a></div>}
     {!!result?.total && <nav className="artwork-pagination" aria-label="作品分页"><button className="button-secondary" disabled={loading || page <= 1} onClick={() => setPage(value => value - 1)}>上一页</button><span>第 {page} / {pages} 页</span><button className="button-secondary" disabled={loading || page >= pages} onClick={() => setPage(value => value + 1)}>下一页</button></nav>}
     <dialog ref={dialog} className="artwork-dialog" aria-labelledby="artwork-detail-title" onCancel={e => { e.preventDefault(); close(); }}>
