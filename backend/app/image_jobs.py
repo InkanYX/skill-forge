@@ -27,6 +27,7 @@ def now() -> str:
 
 class JobView(BaseModel):
     id: str
+    config_id: str
     config_name: str
     model_name: str
     prompt: str
@@ -40,6 +41,9 @@ class JobView(BaseModel):
     reference_url: str | None = None
     template_snapshot: dict = {}
     product_snapshot: dict = {}
+    parent_job_id: str | None = None
+    edit_instruction: str = ''
+    case_id: str | None = None
 
 
 class LibraryJobView(JobView):
@@ -54,7 +58,7 @@ class LibraryPage(BaseModel):
 
 
 def view(row: ImageJob) -> JobView:
-    fields = {name: getattr(row, name) for name in ("id", "config_name", "model_name", "prompt", "size", "mode", "status", "message", "created_at", "updated_at")}
+    fields = {name: getattr(row, name) for name in ("id", "config_id", "parent_job_id", "edit_instruction", "config_name", "model_name", "prompt", "size", "mode", "status", "message", "created_at", "updated_at")}
     return JobView(**fields, product_snapshot=json.loads(row.product_snapshot or '{}'), template_snapshot=json.loads(row.template_snapshot or '{}'), image_url=f"/api/image-jobs/{row.id}/image" if row.status == "succeeded" else None, reference_url=f"/api/image-jobs/{row.id}/reference" if row.mode == "edit" else None)
 
 
@@ -66,7 +70,7 @@ def create_job(engine, directory, config_id, model_name, prompt, size, request_i
     return create_jobs(engine, directory, config_id, model_name, prompt, size, request_id, reference, 1)[0]
 
 
-def create_jobs(engine, directory, config_id, model_name, prompt, size, request_id, reference, count, template_request=None, product_request=None):
+def create_jobs(engine, directory, config_id, model_name, prompt, size, request_id, reference, count, template_request=None, product_request=None, source_job_id=None):
     if not 1 <= count <= 8:
         raise HTTPException(422, "每次请选择 1 至 8 张图片。")
     model_name, prompt = model_name.strip(), prompt.strip()
@@ -84,6 +88,10 @@ def create_jobs(engine, directory, config_id, model_name, prompt, size, request_
         inputs.append(template_request)
     if product_request:
         inputs.append(product_request)
+    if source_job_id:
+        if reference is not None or product_request or template_request:
+            raise HTTPException(422, '继续修改时请使用来源作品，不要同时提供其他参考图、产品或模板。')
+        inputs.append({'source_job_id': source_job_id})
     fingerprint = hashlib.sha256(json.dumps(inputs, ensure_ascii=False).encode()).hexdigest()
     request_ids = [request_id] + [str(uuid5(UUID(request_id), f"image-{index}")) for index in range(1, count)]
     with Session(engine) as session:
@@ -100,6 +108,22 @@ def create_jobs(engine, directory, config_id, model_name, prompt, size, request_
             return prior
         snapshot = {}
         product_snapshot = {}
+        edit_instruction = ''
+        if source_job_id:
+            source = session.get(ImageJob, source_job_id)
+            if source is None or source.status != 'succeeded':
+                raise HTTPException(422, '只能基于已完成的作品继续修改。')
+            path = artifact(directory, source.id, 'result.png')
+            try:
+                if path.stat().st_size > MAX_IMAGE:
+                    raise GenerationError('来源图片过大。')
+                reference = normalize_image(path.read_bytes())
+            except (OSError, GenerationError):
+                raise HTTPException(422, '来源图片文件缺失或不可用，请检查图片目录。') from None
+            snapshot = json.loads(source.template_snapshot or '{}')
+            product_snapshot = json.loads(source.product_snapshot or '{}')
+            edit_instruction = prompt
+            prompt = '基于参考图进行修改。除本次明确要求的变化外，保持产品结构、材质、比例和其他画面内容。\n\n本次修改要求：\n' + edit_instruction
         if product_request:
             product_snapshot, reference = resolve_product(session, directory, product_request, reference)
         if template_request:
@@ -134,6 +158,8 @@ def create_jobs(engine, directory, config_id, model_name, prompt, size, request_
             session.add(row)
             row.template_snapshot = json.dumps(snapshot, ensure_ascii=False)
             row.product_snapshot = json.dumps(product_snapshot, ensure_ascii=False)
+            row.parent_job_id = source_job_id
+            row.edit_instruction = edit_instruction
             rows.append(row)
         try:
             session.commit()
@@ -220,7 +246,7 @@ def build_image_router(engine, directory: Path):
         with Session(engine) as session:
             total = session.scalar(select(func.count()).select_from(ImageJob).where(*conditions))
             rows = session.execute(select(ImageJob, CreativeCase.id).outerjoin(CreativeCase, CreativeCase.job_id == ImageJob.id).where(*conditions).order_by(ImageJob.created_at.desc(), ImageJob.id.desc()).offset((page - 1) * page_size).limit(page_size))
-            return LibraryPage(items=[LibraryJobView(**view(row).model_dump(), case_id=case_id) for row, case_id in rows], total=total, page=page, page_size=page_size)
+            return LibraryPage(items=[LibraryJobView(**{**view(row).model_dump(), 'case_id': case_id}) for row, case_id in rows], total=total, page=page, page_size=page_size)
 
     @router.post("", response_model=JobView, status_code=202)
     def submit(config_id: Annotated[UUID, Form()], request_id: Annotated[UUID, Form()], prompt: Annotated[str, Form(min_length=1, max_length=8000)], model_name: Annotated[str, Form(max_length=200)] = "", size: Annotated[Literal["default", "1024x1024", "1536x1024", "1024x1536"], Form()] = "default", reference: Annotated[UploadFile | None, File()] = None):
@@ -229,7 +255,7 @@ def build_image_router(engine, directory: Path):
         return create_job(engine, directory, str(config_id), model_name, prompt, size, str(request_id), content)
 
     @router.post("/batch", response_model=list[JobView], status_code=202)
-    def submit_batch(config_id: Annotated[UUID, Form()], request_id: Annotated[UUID, Form()], prompt: Annotated[str, Form(max_length=8000)] = "", count: Annotated[int, Form(ge=1, le=8)] = 4, size: Annotated[Literal["default", "1024x1024", "1536x1024", "1024x1536"], Form()] = "default", reference: Annotated[UploadFile | None, File()] = None, template: Annotated[str, Form(max_length=240000)] = "", product: Annotated[str, Form(max_length=2000)] = ""):
+    def submit_batch(config_id: Annotated[UUID, Form()], request_id: Annotated[UUID, Form()], prompt: Annotated[str, Form(max_length=8000)] = "", count: Annotated[int, Form(ge=1, le=8)] = 4, size: Annotated[Literal["default", "1024x1024", "1536x1024", "1024x1536"], Form()] = "default", reference: Annotated[UploadFile | None, File()] = None, template: Annotated[str, Form(max_length=240000)] = "", product: Annotated[str, Form(max_length=2000)] = "", source_job_id: Annotated[UUID | None, Form()] = None):
         require_database()
         content = reference.file.read(MAX_IMAGE + 1) if reference else None
         # Resolve the model exclusively from its saved configuration.
@@ -242,7 +268,7 @@ def build_image_router(engine, directory: Path):
                 raise ValueError()
         except ValueError:
             raise HTTPException(422, "模板参数格式无效。") from None
-        return create_jobs(engine, directory, str(config_id), "", prompt, size, str(request_id), content, count, template_request, product_request)
+        return create_jobs(engine, directory, str(config_id), "", prompt, size, str(request_id), content, count, template_request, product_request, str(source_job_id) if source_job_id else None)
 
     @router.get("/{job_id}", response_model=JobView)
     def get_job(job_id: UUID):
@@ -251,7 +277,26 @@ def build_image_router(engine, directory: Path):
             row = session.get(ImageJob, str(job_id))
             if row is None:
                 raise HTTPException(404, "任务不存在。")
-            return view(row)
+            return view(row).model_copy(update={'case_id': session.scalar(select(CreativeCase.id).where(CreativeCase.job_id == row.id))})
+
+    @router.get('/{job_id}/versions')
+    def versions(job_id: UUID):
+        require_database()
+        with Session(engine) as session:
+            current = session.get(ImageJob, str(job_id))
+            if current is None:
+                raise HTTPException(404, '作品不存在。')
+            ancestors, seen = [], {current.id}
+            parent_id = current.parent_job_id
+            while parent_id and parent_id not in seen and len(ancestors) < 50:
+                row = session.get(ImageJob, parent_id)
+                if row is None:
+                    break
+                ancestors.append(view(row))
+                seen.add(row.id)
+                parent_id = row.parent_job_id
+            children = list(session.scalars(select(ImageJob).where(ImageJob.parent_job_id == current.id).order_by(ImageJob.created_at.desc(), ImageJob.id.desc()).limit(21)))
+            return {'ancestors': list(reversed(ancestors)), 'current': view(current), 'children': [view(row) for row in children[:20]], 'has_more_ancestors': bool(parent_id), 'has_more_children': len(children) > 20}
 
     @router.get("/{job_id}/{kind}")
     def get_image(job_id: UUID, kind: Literal["image", "reference"], download: bool = False):

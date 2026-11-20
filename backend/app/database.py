@@ -66,6 +66,8 @@ class ImageJob(Base):
     lease_until: Mapped[float | None] = mapped_column(Float, nullable=True)
     template_snapshot: Mapped[str] = mapped_column(Text, default="{}")
     product_snapshot: Mapped[str] = mapped_column(Text, default="{}")
+    parent_job_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    edit_instruction: Mapped[str] = mapped_column(Text, default="")
 
 
 class Product(Base):
