@@ -5,6 +5,7 @@ import ImageStudio from './ImageStudio';
 import TemplateLibrary from './TemplateLibrary';
 import CaseLibrary from './CaseLibrary';
 import ProductLibrary from './ProductLibrary';
+import ArtworkLibrary from './ArtworkLibrary';
 
 type Connection =
   | { state: 'loading' }
@@ -14,6 +15,7 @@ type Connection =
 const pages = [
   { id: 'workspace', href: '#/', title: '我的工作台' },
   { id: 'studio', href: '#/studio', title: '图片创作' },
+  { id: 'library', href: '#/library', title: '作品库' },
   { id: 'products', href: '#/products', title: '产品档案' },
   { id: 'templates', href: '#/templates', title: '创作模板' },
   { id: 'cases', href: '#/cases', title: '案例库' },
@@ -24,6 +26,7 @@ function currentPage() {
   if (hash === '#/templates') return 'templates';
   if (hash === '#/cases') return 'cases';
   if (hash === '#/products') return 'products';
+  if (hash === '#/library') return 'library';
   return hash === '#/studio' || hash === '#image-studio-heading' ? 'studio'
     : hash === '#/settings' || hash === '#model-settings-heading' ? 'settings' : 'workspace';
 }
@@ -85,6 +88,7 @@ export default function App() {
           {page === 'templates' && <TemplateLibrary />}
           {page === 'cases' && <CaseLibrary />}
           {page === 'products' && <ProductLibrary />}
+          {page === 'library' && <ArtworkLibrary />}
           {page === 'workspace' && <>
           <div className="page-heading"><div><p className="eyebrow">YOUR CREATIVE WORKSPACE</p><h1>把每一次制作，变成下一次的经验。</h1><p className="subtitle">围绕车棚、凉棚产品，逐步建立素材、模板、图片与案例的完整联系。</p></div><span className="version-badge">v0.1.0</span></div>
 

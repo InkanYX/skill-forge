@@ -8,14 +8,14 @@ from pathlib import Path
 from typing import Annotated, Literal
 from uuid import UUID, uuid4, uuid5
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile, Query
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from sqlalchemy import select, update
+from sqlalchemy import select, update, func, or_, cast, JSON
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.database import ImageJob, ModelConfiguration, DatabaseConfigStore
+from app.database import ImageJob, ModelConfiguration, DatabaseConfigStore, CreativeCase
 from app.image_provider import MAX_IMAGE, GenerationError, generate_image, normalize_image
 from app.creative_templates import render_template
 from app.products import resolve_product
@@ -40,6 +40,17 @@ class JobView(BaseModel):
     reference_url: str | None = None
     template_snapshot: dict = {}
     product_snapshot: dict = {}
+
+
+class LibraryJobView(JobView):
+    case_id: str | None = None
+
+
+class LibraryPage(BaseModel):
+    items: list[LibraryJobView]
+    total: int
+    page: int
+    page_size: int
 
 
 def view(row: ImageJob) -> JobView:
@@ -185,6 +196,31 @@ def build_image_router(engine, directory: Path):
         require_database()
         with Session(engine) as session:
             return [view(row) for row in session.scalars(select(ImageJob).order_by(ImageJob.created_at.desc()).limit(30))]
+
+    @router.get('/library', response_model=LibraryPage)
+    def library(page: Annotated[int, Query(ge=1, le=100000)] = 1, page_size: Annotated[int, Query(ge=1, le=48)] = 12, status: Literal['all', 'queued', 'running', 'succeeded', 'failed', 'unknown'] = 'succeeded', q: Annotated[str, Query(max_length=200)] = '', product_id: UUID | None = None, template_id: UUID | None = None):
+        require_database()
+        product = cast(ImageJob.product_snapshot, JSON)
+        template = cast(ImageJob.template_snapshot, JSON)
+        # SQLite interprets CAST(text AS JSON) as numeric. JSON type_coerce keeps
+        # JSON extraction portable without changing the stored snapshot format.
+        from sqlalchemy import type_coerce
+        if engine.dialect.name == 'sqlite':
+            product = type_coerce(ImageJob.product_snapshot, JSON)
+            template = type_coerce(ImageJob.template_snapshot, JSON)
+        conditions = []
+        if status != 'all':
+            conditions.append(ImageJob.status == status)
+        if product_id:
+            conditions.append(product['id'].as_string() == str(product_id))
+        if template_id:
+            conditions.append(template['id'].as_string() == str(template_id))
+        if q.strip():
+            conditions.append(or_(ImageJob.prompt.icontains(q.strip(), autoescape=True), ImageJob.model_name.icontains(q.strip(), autoescape=True), product['sku'].as_string().icontains(q.strip(), autoescape=True), product['name'].as_string().icontains(q.strip(), autoescape=True), template['name'].as_string().icontains(q.strip(), autoescape=True)))
+        with Session(engine) as session:
+            total = session.scalar(select(func.count()).select_from(ImageJob).where(*conditions))
+            rows = session.execute(select(ImageJob, CreativeCase.id).outerjoin(CreativeCase, CreativeCase.job_id == ImageJob.id).where(*conditions).order_by(ImageJob.created_at.desc(), ImageJob.id.desc()).offset((page - 1) * page_size).limit(page_size))
+            return LibraryPage(items=[LibraryJobView(**view(row).model_dump(), case_id=case_id) for row, case_id in rows], total=total, page=page, page_size=page_size)
 
     @router.post("", response_model=JobView, status_code=202)
     def submit(config_id: Annotated[UUID, Form()], request_id: Annotated[UUID, Form()], prompt: Annotated[str, Form(min_length=1, max_length=8000)], model_name: Annotated[str, Form(max_length=200)] = "", size: Annotated[Literal["default", "1024x1024", "1536x1024", "1024x1536"], Form()] = "default", reference: Annotated[UploadFile | None, File()] = None):
