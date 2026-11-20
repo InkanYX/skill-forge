@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from app.database import CreativeTemplate, CreativeCase, ImageJob
+from app.skills import resolve_skill
 
 VARIABLE = re.compile(r"\{\{\s*([^{}\n]{1,40}?)\s*\}\}")
 
@@ -19,6 +20,8 @@ class TemplateInput(BaseModel):
     purpose: str = Field(default="", max_length=1000)
     prompt: str = Field(min_length=1, max_length=12000)
     skill: str = Field(default="", max_length=20000)
+    skill_id: UUID | None = None
+    skill_revision: int = Field(default=0, ge=0)
     notes: str = Field(default="", max_length=2000)
     size: Literal["default", "1024x1024", "1536x1024", "1024x1536"] = "default"
     count: int = Field(default=4, ge=1, le=8)
@@ -103,6 +106,11 @@ def build_creative_router(engine):
     def save(data, identifier=None):
         require_db()
         with Session(engine) as session, session.begin():
+            content = data.model_dump(mode='json', exclude={'revision'})
+            if data.skill_id:
+                content.update(resolve_skill(session, data.skill_id, data.skill_revision))
+            elif data.skill_revision:
+                raise HTTPException(422, '请先选择关联的 Skill。')
             if identifier:
                 row = session.get(CreativeTemplate, str(identifier), with_for_update=True)
                 if row is None:
@@ -113,7 +121,7 @@ def build_creative_router(engine):
             else:
                 row = CreativeTemplate(id=str(uuid4()), revision=1)
                 session.add(row)
-            row.content = json.dumps(data.model_dump(exclude={'revision'}), ensure_ascii=False)
+            row.content = json.dumps(content, ensure_ascii=False)
             row.updated_at = timestamp()
             return template_view(row)
 

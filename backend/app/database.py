@@ -101,6 +101,22 @@ class CreativeTemplate(Base):
     updated_at: Mapped[str] = mapped_column(String(40))
 
 
+class CreativeSkill(Base):
+    __tablename__ = 'creative_skills'
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    content: Mapped[str] = mapped_column(Text)
+    revision: Mapped[int] = mapped_column(default=1)
+    updated_at: Mapped[str] = mapped_column(String(40))
+
+
+class SkillRevision(Base):
+    __tablename__ = 'skill_revisions'
+    skill_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    revision: Mapped[int] = mapped_column(primary_key=True)
+    content: Mapped[str] = mapped_column(Text)
+    updated_at: Mapped[str] = mapped_column(String(40))
+
+
 class CreativeCase(Base):
     __tablename__ = "creative_cases"
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
@@ -181,6 +197,8 @@ def storage_status(engine: Engine | None) -> dict:
             connection.execute(select(CreativeCase.id).limit(0))
             connection.execute(select(Product.id).limit(0))
             connection.execute(select(ProductAsset.id).limit(0))
+            connection.execute(select(CreativeSkill.id).limit(0))
+            connection.execute(select(SkillRevision.skill_id).limit(0))
         return {"storage": "postgresql", "status": "ready", "message": "数据库连接、模型配置与生图任务表检查通过"}
     except Exception:
         return {"storage": "postgresql", "status": "unavailable", "message": "数据库未连接或表结构未就绪，请检查数据库并运行迁移。"}

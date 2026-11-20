@@ -108,6 +108,9 @@ h3 { font-size: 17px; font-weight: 600; margin: 19px 0 10px; }
 .model-picker .model-selected { border-color: #7196dc; background: #eaf1ff; color: #244e9c; }
 .model-picker small { font-size: 13px; color: #75869e; width: 100%; }
 .image-studio { margin-bottom: 42px; }
+.skill-content { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 520px; overflow: auto; padding: 20px; border: 1px solid #dce4f0; border-radius: 8px; background: #f8fafd; font: inherit; font-size: 14px; line-height: 1.9; }
+.skill-dialog { width: min(800px, calc(100vw - 32px)); }
+.form-field textarea[readonly] { background: #f8fafd; color: #54677f; }
 .task-cancel { margin: 16px 0; }
 .cancel-button { color: #9c453d; border-color: #dfb9b5; }
 .cancel-button[aria-busy="true"] { cursor: progress; }
