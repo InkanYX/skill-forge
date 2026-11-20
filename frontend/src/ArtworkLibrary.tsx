@@ -9,6 +9,7 @@ interface Artwork {
   size: string; mode: string; created_at: string; image_url: string | null; reference_url: string | null;
   product_snapshot: ProductSnapshot; template_snapshot: TemplateSnapshot; case_id: string | null;
   parent_job_id: string | null; edit_instruction: string;
+  set_id: string | null; set_name: string; shot_name: string;
 }
 interface ArtworkPage { items: Artwork[]; total: number; page: number; page_size: number }
 const labels: Record<string, string> = { all: '全部状态', succeeded: '已完成', queued: '排队中', running: '生成中', failed: '未完成', unknown: '结果待确认' };
@@ -107,6 +108,7 @@ export default function ArtworkLibrary() {
         {selected.product_snapshot.id && <details><summary>当时的产品档案 · {selected.product_snapshot.sku}</summary><p>{selected.product_snapshot.name} · 版本 {selected.product_snapshot.revision}</p><p>{selected.product_snapshot.color} · {selected.product_snapshot.dimensions}</p><p>{selected.product_snapshot.facts}</p><p>{selected.product_snapshot.notes}</p></details>}
         {selected.template_snapshot.id && <details><summary>当时的模板 · {selected.template_snapshot.name}</summary><p>版本 {selected.template_snapshot.revision}</p><p>{Object.entries(selected.template_snapshot.values || {}).map(([key, value]) => `${key}：${value}`).join('；')}</p><p>{selected.template_snapshot.prompt}</p>{selected.template_snapshot.skill && <p>Skill：{selected.template_snapshot.skill}</p>}<p>{selected.template_snapshot.notes}</p></details>}
         {selected.edit_instruction && <p>本次修改：{selected.edit_instruction}</p>}
+        {selected.set_id && <p>套图：{selected.set_name} · {selected.shot_name} <a className="button-secondary" href={`#/sets?set=${selected.set_id}`} onClick={e => { if (!close()) e.preventDefault(); }}>查看整套图片</a></p>}
         <RevisionTrail jobId={selected.id} onNavigate={e => { if (!close()) e.preventDefault(); }} />
       </div></div></>}
     </dialog>

@@ -7,6 +7,7 @@ import CaseLibrary from './CaseLibrary';
 import ProductLibrary from './ProductLibrary';
 import ArtworkLibrary from './ArtworkLibrary';
 import ImageRevision from './ImageRevision';
+import ImageSetStudio from './ImageSetStudio';
 
 type Connection =
   | { state: 'loading' }
@@ -29,6 +30,7 @@ function currentPage() {
   if (hash === '#/products') return 'products';
   if (hash === '#/library') return 'library';
   if (hash === '#/edit') return 'edit';
+  if (hash === '#/sets') return 'sets';
   return hash === '#/studio' || hash === '#image-studio-heading' ? 'studio'
     : hash === '#/settings' || hash === '#model-settings-heading' ? 'settings' : 'workspace';
 }
@@ -79,12 +81,12 @@ export default function App() {
           <span className="brand-icon">SF</span><span>Skill Forge<small>电商图片工作台</small></span>
         </a>
         <div className="workspace-label">个人工作空间</div>
-        <nav aria-label="工作空间导航">{pages.map((item) => <a key={item.id} className={`nav-link ${(page === item.id || (page === 'edit' && item.id === 'studio')) ? 'nav-active' : ''}`} aria-current={(page === item.id || (page === 'edit' && item.id === 'studio')) ? 'page' : undefined} href={item.href}>{item.title}</a>)}</nav>
+        <nav aria-label="工作空间导航">{pages.map((item) => <a key={item.id} className={`nav-link ${(page === item.id || ((page === 'edit' || page === 'sets') && item.id === 'studio')) ? 'nav-active' : ''}`} aria-current={(page === item.id || ((page === 'edit' || page === 'sets') && item.id === 'studio')) ? 'page' : undefined} href={item.href}>{item.title}</a>)}</nav>
         <div className="sidebar-note"><span className="note-label">开发阶段 · 03</span><p>从产品素材到可复用的制作经验。</p><small>数据库持久化已接入</small></div>
       </aside>
 
       <div className="main-shell">
-        <header className="topbar"><span>工作空间 / {page === 'edit' ? '图片创作 / 继续修改' : pages.find((item) => item.id === page)?.title}</span><span className="environment">本机开发环境</span></header>
+        <header className="topbar"><span>工作空间 / {page === 'edit' ? '图片创作 / 继续修改' : page === 'sets' ? '图片创作 / 成套制作' : pages.find((item) => item.id === page)?.title}</span><span className="environment">本机开发环境</span></header>
         <main id="workspace">
           {page === 'studio' && <ImageStudio />}
           {page === 'settings' && <ModelSettings />}
@@ -93,6 +95,7 @@ export default function App() {
           {page === 'products' && <ProductLibrary />}
           {page === 'library' && <ArtworkLibrary key={route} />}
           {page === 'edit' && <ImageRevision key={route} />}
+          {page === 'sets' && <ImageSetStudio key={route} />}
           {page === 'workspace' && <>
           <div className="page-heading"><div><p className="eyebrow">YOUR CREATIVE WORKSPACE</p><h1>把每一次制作，变成下一次的经验。</h1><p className="subtitle">围绕车棚、凉棚产品，逐步建立素材、模板、图片与案例的完整联系。</p></div><span className="version-badge">v0.1.0</span></div>
 

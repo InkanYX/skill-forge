@@ -68,6 +68,10 @@ class ImageJob(Base):
     product_snapshot: Mapped[str] = mapped_column(Text, default="{}")
     parent_job_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     edit_instruction: Mapped[str] = mapped_column(Text, default="")
+    set_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    set_name: Mapped[str] = mapped_column(String(100), default="")
+    shot_name: Mapped[str] = mapped_column(String(80), default="")
+    shot_index: Mapped[int | None] = mapped_column(nullable=True)
 
 
 class Product(Base):

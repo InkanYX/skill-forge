@@ -10,7 +10,7 @@ from uuid import UUID, uuid4, uuid5
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile, Query
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, ValidationError, field_validator
 from sqlalchemy import select, update, func, or_, cast, JSON
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -44,6 +44,35 @@ class JobView(BaseModel):
     parent_job_id: str | None = None
     edit_instruction: str = ''
     case_id: str | None = None
+    set_id: str | None = None
+    set_name: str = ''
+    shot_name: str = ''
+    shot_index: int | None = None
+
+
+class ShotInput(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    prompt: str = Field(min_length=1, max_length=4000)
+    size: Literal['default', '1024x1024', '1536x1024', '1024x1536'] = 'default'
+
+    @field_validator('name', 'prompt')
+    @classmethod
+    def nonblank(cls, value):
+        if not value.strip():
+            raise ValueError('每张图片都需填写用途名称和制作要求。')
+        return value.strip()
+
+
+class ImageSetInput(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    shots: list[ShotInput] = Field(min_length=1, max_length=8)
+
+    @field_validator('name')
+    @classmethod
+    def nonblank(cls, value):
+        if not value.strip():
+            raise ValueError('请填写套图名称。')
+        return value.strip()
 
 
 class LibraryJobView(JobView):
@@ -58,7 +87,7 @@ class LibraryPage(BaseModel):
 
 
 def view(row: ImageJob) -> JobView:
-    fields = {name: getattr(row, name) for name in ("id", "config_id", "parent_job_id", "edit_instruction", "config_name", "model_name", "prompt", "size", "mode", "status", "message", "created_at", "updated_at")}
+    fields = {name: getattr(row, name) for name in ("id", "config_id", "parent_job_id", "edit_instruction", "set_id", "set_name", "shot_name", "shot_index", "config_name", "model_name", "prompt", "size", "mode", "status", "message", "created_at", "updated_at")}
     return JobView(**fields, product_snapshot=json.loads(row.product_snapshot or '{}'), template_snapshot=json.loads(row.template_snapshot or '{}'), image_url=f"/api/image-jobs/{row.id}/image" if row.status == "succeeded" else None, reference_url=f"/api/image-jobs/{row.id}/reference" if row.mode == "edit" else None)
 
 
@@ -70,11 +99,11 @@ def create_job(engine, directory, config_id, model_name, prompt, size, request_i
     return create_jobs(engine, directory, config_id, model_name, prompt, size, request_id, reference, 1)[0]
 
 
-def create_jobs(engine, directory, config_id, model_name, prompt, size, request_id, reference, count, template_request=None, product_request=None, source_job_id=None):
+def create_jobs(engine, directory, config_id, model_name, prompt, size, request_id, reference, count, template_request=None, product_request=None, source_job_id=None, image_set=None):
     if not 1 <= count <= 8:
         raise HTTPException(422, "每次请选择 1 至 8 张图片。")
     model_name, prompt = model_name.strip(), prompt.strip()
-    if not prompt and not template_request:
+    if not prompt and not template_request and not image_set:
         raise HTTPException(422, "请填写图片要求。")
     if reference is not None:
         try:
@@ -88,6 +117,10 @@ def create_jobs(engine, directory, config_id, model_name, prompt, size, request_
         inputs.append(template_request)
     if product_request:
         inputs.append(product_request)
+    if image_set:
+        if source_job_id or len(image_set['shots']) != count:
+            raise HTTPException(422, '套图参数无效。')
+        inputs.append(image_set)
     if source_job_id:
         if reference is not None or product_request or template_request:
             raise HTTPException(422, '继续修改时请使用来源作品，不要同时提供其他参考图、产品或模板。')
@@ -109,6 +142,7 @@ def create_jobs(engine, directory, config_id, model_name, prompt, size, request_
         snapshot = {}
         product_snapshot = {}
         edit_instruction = ''
+        set_meta = {'set_id': request_id if image_set else None, 'set_name': image_set['name'] if image_set else '', 'shot_name': '', 'shot_index': None}
         if source_job_id:
             source = session.get(ImageJob, source_job_id)
             if source is None or source.status != 'succeeded':
@@ -123,6 +157,7 @@ def create_jobs(engine, directory, config_id, model_name, prompt, size, request_
             snapshot = json.loads(source.template_snapshot or '{}')
             product_snapshot = json.loads(source.product_snapshot or '{}')
             edit_instruction = prompt
+            set_meta = {key: getattr(source, key) for key in set_meta}
             prompt = '基于参考图进行修改。除本次明确要求的变化外，保持产品结构、材质、比例和其他画面内容。\n\n本次修改要求：\n' + edit_instruction
         if product_request:
             product_snapshot, reference = resolve_product(session, directory, product_request, reference)
@@ -133,6 +168,11 @@ def create_jobs(engine, directory, config_id, model_name, prompt, size, request_
             prompt += '\n\n产品资料（只使用已提供信息，不推测缺失参数）：\n' + json.dumps(facts, ensure_ascii=False)
         if len(prompt) > 32000:
             raise HTTPException(422, '合并后的创作要求过长，请精简模板或产品资料。')
+        plans = [{'prompt': prompt, 'size': size, 'shot_name': set_meta['shot_name'], 'shot_index': set_meta['shot_index']} for _ in range(count)]
+        if image_set:
+            plans = [{'prompt': f"{prompt}\n\n本张用途：{shot['name']}\n本张制作要求：\n{shot['prompt']}", 'size': shot['size'], 'shot_name': shot['name'], 'shot_index': index} for index, shot in enumerate(image_set['shots'])]
+            if any(len(plan['prompt']) > 32000 for plan in plans):
+                raise HTTPException(422, '部分图片合并后的要求过长，请精简公共要求或模板。')
         config = session.get(ModelConfiguration, config_id)
         if config is None:
             raise HTTPException(404, "请先保存模型配置。")
@@ -148,9 +188,9 @@ def create_jobs(engine, directory, config_id, model_name, prompt, size, request_
         except Exception:
             raise HTTPException(503, "无法解密密钥，请恢复加密文件或重新保存配置。") from None
         rows = []
-        for item_request_id in request_ids:
+        for item_request_id, plan in zip(request_ids, plans):
             identifier = str(uuid4())
-            row = ImageJob(id=identifier, request_id=item_request_id, fingerprint=fingerprint, config_id=config_id, config_name=config.name, base_url=config.base_url, encrypted_key=config.encrypted_key, model_name=model_name, prompt=prompt, size=size, mode="edit" if reference else "generate", status="queued", message="等待后台 Worker 执行", created_at=now(), updated_at=now())
+            row = ImageJob(id=identifier, request_id=item_request_id, fingerprint=fingerprint, config_id=config_id, config_name=config.name, base_url=config.base_url, encrypted_key=config.encrypted_key, model_name=model_name, prompt=plan['prompt'], size=plan['size'], mode="edit" if reference else "generate", status="queued", message="等待后台 Worker 执行", created_at=now(), updated_at=now())
             if reference:
                 path = artifact(directory, identifier, "reference.png")
                 path.parent.mkdir(parents=True, exist_ok=True)
@@ -160,6 +200,8 @@ def create_jobs(engine, directory, config_id, model_name, prompt, size, request_
             row.product_snapshot = json.dumps(product_snapshot, ensure_ascii=False)
             row.parent_job_id = source_job_id
             row.edit_instruction = edit_instruction
+            row.set_id, row.set_name = set_meta['set_id'], set_meta['set_name']
+            row.shot_name, row.shot_index = plan['shot_name'], plan['shot_index']
             rows.append(row)
         try:
             session.commit()
@@ -223,6 +265,29 @@ def build_image_router(engine, directory: Path):
         with Session(engine) as session:
             return [view(row) for row in session.scalars(select(ImageJob).order_by(ImageJob.created_at.desc()).limit(30))]
 
+    @router.post('/sets', response_model=list[JobView], status_code=202)
+    def submit_set(config_id: Annotated[UUID, Form()], request_id: Annotated[UUID, Form()], plan: Annotated[str, Form(max_length=80000)], prompt: Annotated[str, Form(max_length=8000)] = '', template: Annotated[str, Form(max_length=240000)] = '', product: Annotated[str, Form(max_length=2000)] = '', reference: Annotated[UploadFile | None, File()] = None):
+        require_database()
+        try:
+            image_set = ImageSetInput.model_validate_json(plan).model_dump()
+            template_request = json.loads(template) if template else None
+            product_request = json.loads(product) if product else None
+            if any(value is not None and (not isinstance(value, dict) or not value) for value in (template_request, product_request)):
+                raise ValueError()
+        except (ValueError, ValidationError):
+            raise HTTPException(422, '请检查套图清单：名称、每张用途和要求必填，每套 1–8 张，单张要求最多 4000 字符。') from None
+        content = reference.file.read(MAX_IMAGE + 1) if reference else None
+        return create_jobs(engine, directory, str(config_id), '', prompt, 'default', str(request_id), content, len(image_set['shots']), template_request, product_request, image_set=image_set)
+
+    @router.get('/sets/{set_id}')
+    def get_set(set_id: UUID):
+        require_database()
+        with Session(engine) as session:
+            rows = list(session.scalars(select(ImageJob).where(ImageJob.set_id == str(set_id)).order_by(ImageJob.shot_index, ImageJob.created_at, ImageJob.id).limit(201)))
+            if not rows:
+                raise HTTPException(404, '套图记录不存在。')
+            return {'id': str(set_id), 'name': rows[0].set_name, 'items': [view(row) for row in rows[:200]], 'has_more': len(rows) > 200}
+
     @router.get('/library', response_model=LibraryPage)
     def library(page: Annotated[int, Query(ge=1, le=100000)] = 1, page_size: Annotated[int, Query(ge=1, le=48)] = 12, status: Literal['all', 'queued', 'running', 'succeeded', 'failed', 'unknown'] = 'succeeded', q: Annotated[str, Query(max_length=200)] = '', product_id: UUID | None = None, template_id: UUID | None = None):
         require_database()
@@ -242,7 +307,7 @@ def build_image_router(engine, directory: Path):
         if template_id:
             conditions.append(template['id'].as_string() == str(template_id))
         if q.strip():
-            conditions.append(or_(ImageJob.prompt.icontains(q.strip(), autoescape=True), ImageJob.model_name.icontains(q.strip(), autoescape=True), product['sku'].as_string().icontains(q.strip(), autoescape=True), product['name'].as_string().icontains(q.strip(), autoescape=True), template['name'].as_string().icontains(q.strip(), autoescape=True)))
+            conditions.append(or_(ImageJob.prompt.icontains(q.strip(), autoescape=True), ImageJob.model_name.icontains(q.strip(), autoescape=True), ImageJob.set_name.icontains(q.strip(), autoescape=True), ImageJob.shot_name.icontains(q.strip(), autoescape=True), product['sku'].as_string().icontains(q.strip(), autoescape=True), product['name'].as_string().icontains(q.strip(), autoescape=True), template['name'].as_string().icontains(q.strip(), autoescape=True)))
         with Session(engine) as session:
             total = session.scalar(select(func.count()).select_from(ImageJob).where(*conditions))
             rows = session.execute(select(ImageJob, CreativeCase.id).outerjoin(CreativeCase, CreativeCase.job_id == ImageJob.id).where(*conditions).order_by(ImageJob.created_at.desc(), ImageJob.id.desc()).offset((page - 1) * page_size).limit(page_size))
