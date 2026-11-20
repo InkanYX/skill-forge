@@ -48,6 +48,7 @@ export default function ModelSettings() {
 
   async function handleSave(event: FormEvent) {
     event.preventDefault();
+    if (!draft.model_name.trim()) { setError('请先选择或填写此配置使用的模型名称。'); return; }
     setBusy('save'); setError(''); setNotice('');
     try {
       const item = await saveConfig(draft, selected);
@@ -75,7 +76,7 @@ export default function ModelSettings() {
 
   return <section className="model-settings" aria-labelledby="model-settings-heading">
     <div className="section-heading"><div><p className="eyebrow">YOUR MODEL CONNECTIONS</p><h2 id="model-settings-heading">个人模型配置</h2></div><button className="button-secondary" disabled={busy !== null} onClick={() => selectConfig()}>新建配置</button></div>
-    <p className="settings-intro">填写服务商地址和自己的密钥，保存后用于后续图片制作。当前支持 OpenAI 兼容的模型列表查询。</p>
+    <p className="settings-intro">在这里配置服务商地址、密钥和图片模型。每份配置对应一个模型，制作页面直接选择即可；同一服务商的不同模型可以分别保存。</p>
     <div className="settings-layout">
       <aside className="config-list" aria-label="已保存的接口配置">
         <div className="list-title">已保存的配置 <span>{configs.length}</span></div>
@@ -96,7 +97,7 @@ export default function ModelSettings() {
         {models.length > 0 && <div className="model-picker" aria-label="选择服务商模型">{models.slice(0, 24).map((model) => <button type="button" key={model} title={model} disabled={busy !== null} className={draft.model_name === model ? 'model-selected' : ''} onClick={() => change('model_name', model)}>{model}</button>)}{models.length > 24 && <small>更多模型可在上方输入框搜索选择。</small>}</div>}
         {notice && <div className="feedback feedback-success" role="status">{notice}</div>}
         <div className="form-actions"><button type="button" className="button-secondary" disabled={busy !== null} onClick={handleTest}>{busy === 'test' ? '正在测试…' : '测试连接 / 读取模型'}</button><button className="button-primary" type="submit" disabled={busy !== null}>{busy === 'save' ? '正在保存…' : '保存配置'}</button></div>
-        <p className="form-footnote">连接测试仅请求模型列表，不发送图片、不执行生图。配置保存在本机；团队账号与权限将在后续接入。</p>
+        <p className="form-footnote">连接测试仅请求模型列表，不发送图片、不执行生图。配置通过后端持久化；团队账号与权限将在后续接入。</p>
       </form>
     </div>
   </section>;

@@ -1,7 +1,7 @@
 """HTTP application. Health endpoints deliberately require no database."""
 
 from datetime import datetime, timezone
-import os
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal
 
@@ -10,8 +10,11 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from starlette.middleware.trustedhost import TrustedHostMiddleware
+from sqlalchemy.exc import SQLAlchemyError
+from app.database import DatabaseConfigStore, database_url, data_directory, make_engine, storage_status
 
 from app.model_configs import FileConfigStore, build_router, probe_models
+from app.image_jobs import build_image_router
 
 VERSION = "0.1.0"
 
@@ -23,25 +26,36 @@ class HealthResponse(BaseModel):
     timestamp: datetime
 
 
-def create_app(data_dir: Path | None = None, probe=probe_models) -> FastAPI:
+def create_app(data_dir: Path | None = None, probe=probe_models, db_url: str | None = None) -> FastAPI:
+    @asynccontextmanager
+    async def lifespan(app):
+        yield
+        if engine:
+            engine.dispose()
+
     application = FastAPI(
         title="Skill Forge API",
         description="车棚、凉棚图片工作台：健康检查与个人模型配置（本机开发阶段）。",
         version=VERSION,
+        lifespan=lifespan,
     )
     application.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost", "testserver"])
 
     @application.middleware("http")
     async def local_origin_guard(request: Request, call_next):
-        if request.url.path.startswith("/api/model-configs"):
+        if request.url.path.startswith(("/api/model-configs", "/api/image-jobs")):
             origin = request.headers.get("origin")
             allowed = {f"http://{host}:{port}" for host in ("localhost", "127.0.0.1") for port in (5173, 8000)}
             if origin and origin not in allowed:
                 return JSONResponse(status_code=403, content={"detail": "不允许此网页来源访问模型配置。"})
-            if request.method in ("POST", "PUT") and request.headers.get("content-type", "").split(";")[0] != "application/json":
+            content_type = request.headers.get("content-type", "").split(";")[0]
+            length = request.headers.get("content-length", "")
+            if request.url.path.startswith("/api/image-jobs") and request.method == "POST" and (content_type != "multipart/form-data" or not length.isdecimal() or int(length) > 21 * 1024 * 1024):
+                return JSONResponse(status_code=413, content={"detail": "请使用不超过 20 MB 的参考图片提交。"})
+            if request.url.path.startswith("/api/model-configs") and request.method in ("POST", "PUT") and content_type != "application/json":
                 return JSONResponse(status_code=415, content={"detail": "请使用 JSON 请求。"})
         response = await call_next(request)
-        if request.url.path.startswith("/api/model-configs"):
+        if request.url.path.startswith(("/api/model-configs", "/api/image-jobs")):
             response.headers["Cache-Control"] = "no-store"
         return response
 
@@ -51,9 +65,22 @@ def create_app(data_dir: Path | None = None, probe=probe_models) -> FastAPI:
         errors = [{"loc": error["loc"], "msg": error["msg"], "type": error["type"]} for error in exc.errors()]
         return JSONResponse(status_code=422, content={"detail": errors})
 
-    directory = data_dir or Path(os.environ.get("SKILL_FORGE_DATA_DIR", str(Path(__file__).resolve().parents[2] / "data")))
-    application.include_router(build_router(FileConfigStore(directory), probe))
+    @application.exception_handler(SQLAlchemyError)
+    async def database_error(request: Request, exc: SQLAlchemyError):
+        return JSONResponse(status_code=503, content={"detail": "数据库暂不可用，请检查连接与表结构。"})
+
+    directory = data_dir or data_directory()
+    # Explicit data_dir keeps file-based tests isolated from a developer's .env.
+    url = db_url or (database_url() if data_dir is None else None)
+    engine = make_engine(url) if url else None
+    store = DatabaseConfigStore(directory, engine) if engine else FileConfigStore(directory)
+    application.include_router(build_router(store, probe))
+    application.include_router(build_image_router(engine, directory))
     router = APIRouter(prefix="/api")
+
+    @router.get("/system/status", tags=["system"])
+    def system_status():
+        return storage_status(engine)
 
     @router.get("/health", response_model=HealthResponse, tags=["system"])
     def health() -> HealthResponse:
