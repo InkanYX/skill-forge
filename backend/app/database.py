@@ -65,6 +65,26 @@ class ImageJob(Base):
     updated_at: Mapped[str] = mapped_column(String(40))
     lease_until: Mapped[float | None] = mapped_column(Float, nullable=True)
     template_snapshot: Mapped[str] = mapped_column(Text, default="{}")
+    product_snapshot: Mapped[str] = mapped_column(Text, default="{}")
+
+
+class Product(Base):
+    __tablename__ = "products"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    sku: Mapped[str] = mapped_column(String(100), unique=True)
+    content: Mapped[str] = mapped_column(Text)
+    revision: Mapped[int] = mapped_column(default=1)
+    updated_at: Mapped[str] = mapped_column(String(40))
+
+
+class ProductAsset(Base):
+    __tablename__ = "product_assets"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    product_id: Mapped[str] = mapped_column(String(36), index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    kind: Mapped[str] = mapped_column(String(32))
+    digest: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[str] = mapped_column(String(40))
 
 
 class CreativeTemplate(Base):
@@ -153,6 +173,8 @@ def storage_status(engine: Engine | None) -> dict:
             connection.execute(select(ImageJob.id).limit(0))
             connection.execute(select(CreativeTemplate.id).limit(0))
             connection.execute(select(CreativeCase.id).limit(0))
+            connection.execute(select(Product.id).limit(0))
+            connection.execute(select(ProductAsset.id).limit(0))
         return {"storage": "postgresql", "status": "ready", "message": "数据库连接、模型配置与生图任务表检查通过"}
     except Exception:
         return {"storage": "postgresql", "status": "unavailable", "message": "数据库未连接或表结构未就绪，请检查数据库并运行迁移。"}

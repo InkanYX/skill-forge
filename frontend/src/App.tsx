@@ -4,6 +4,7 @@ import ModelSettings from './ModelSettings';
 import ImageStudio from './ImageStudio';
 import TemplateLibrary from './TemplateLibrary';
 import CaseLibrary from './CaseLibrary';
+import ProductLibrary from './ProductLibrary';
 
 type Connection =
   | { state: 'loading' }
@@ -13,6 +14,7 @@ type Connection =
 const pages = [
   { id: 'workspace', href: '#/', title: '我的工作台' },
   { id: 'studio', href: '#/studio', title: '图片创作' },
+  { id: 'products', href: '#/products', title: '产品档案' },
   { id: 'templates', href: '#/templates', title: '创作模板' },
   { id: 'cases', href: '#/cases', title: '案例库' },
   { id: 'settings', href: '#/settings', title: '个人模型配置' },
@@ -21,6 +23,7 @@ function currentPage() {
   const hash = window.location.hash.split('?')[0];
   if (hash === '#/templates') return 'templates';
   if (hash === '#/cases') return 'cases';
+  if (hash === '#/products') return 'products';
   return hash === '#/studio' || hash === '#image-studio-heading' ? 'studio'
     : hash === '#/settings' || hash === '#model-settings-heading' ? 'settings' : 'workspace';
 }
@@ -81,6 +84,7 @@ export default function App() {
           {page === 'settings' && <ModelSettings />}
           {page === 'templates' && <TemplateLibrary />}
           {page === 'cases' && <CaseLibrary />}
+          {page === 'products' && <ProductLibrary />}
           {page === 'workspace' && <>
           <div className="page-heading"><div><p className="eyebrow">YOUR CREATIVE WORKSPACE</p><h1>把每一次制作，变成下一次的经验。</h1><p className="subtitle">围绕车棚、凉棚产品，逐步建立素材、模板、图片与案例的完整联系。</p></div><span className="version-badge">v0.1.0</span></div>
 
@@ -98,7 +102,7 @@ export default function App() {
           </section>
 
           <section className="next-section" aria-labelledby="next-heading"><div className="section-heading"><h2 id="next-heading">接下来，一步步跑通制作流程</h2><span>后续开发内容</span></div><div className="roadmap">
-            <article><span className="step-icon">素材</span><h3>建立产品资料</h3><p>关联 SKU、实拍与尺寸，让每次制作都有准确的产品依据。</p><span className="planned">待实现</span></article>
+            <article><span className="step-icon">素材</span><h3>建立产品资料</h3><p>关联 SKU、实拍与尺寸，让每次制作都有准确的产品依据。</p><a className="button-secondary" href="#/products">管理产品资料</a></article>
             <article><span className="step-icon">模板</span><h3>沉淀生图方法</h3><p>配置提示词、自然语言 Skill 和参考案例，复用有效经验。</p><a className="button-secondary" href="#/templates">管理创作模板</a></article>
             <article><span className="step-icon">作品</span><h3>完成制作与交付</h3><p>生成、比较、修改和导出图片，保留完整制作记录。</p><span className="planned">待实现</span></article>
           </div></section>

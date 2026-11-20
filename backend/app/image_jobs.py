@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 from app.database import ImageJob, ModelConfiguration, DatabaseConfigStore
 from app.image_provider import MAX_IMAGE, GenerationError, generate_image, normalize_image
 from app.creative_templates import render_template
+from app.products import resolve_product
 
 
 def now() -> str:
@@ -38,11 +39,12 @@ class JobView(BaseModel):
     image_url: str | None = None
     reference_url: str | None = None
     template_snapshot: dict = {}
+    product_snapshot: dict = {}
 
 
 def view(row: ImageJob) -> JobView:
     fields = {name: getattr(row, name) for name in ("id", "config_name", "model_name", "prompt", "size", "mode", "status", "message", "created_at", "updated_at")}
-    return JobView(**fields, template_snapshot=json.loads(row.template_snapshot or '{}'), image_url=f"/api/image-jobs/{row.id}/image" if row.status == "succeeded" else None, reference_url=f"/api/image-jobs/{row.id}/reference" if row.mode == "edit" else None)
+    return JobView(**fields, product_snapshot=json.loads(row.product_snapshot or '{}'), template_snapshot=json.loads(row.template_snapshot or '{}'), image_url=f"/api/image-jobs/{row.id}/image" if row.status == "succeeded" else None, reference_url=f"/api/image-jobs/{row.id}/reference" if row.mode == "edit" else None)
 
 
 def artifact(directory: Path, identifier: str, name: str) -> Path:
@@ -53,7 +55,7 @@ def create_job(engine, directory, config_id, model_name, prompt, size, request_i
     return create_jobs(engine, directory, config_id, model_name, prompt, size, request_id, reference, 1)[0]
 
 
-def create_jobs(engine, directory, config_id, model_name, prompt, size, request_id, reference, count, template_request=None):
+def create_jobs(engine, directory, config_id, model_name, prompt, size, request_id, reference, count, template_request=None, product_request=None):
     if not 1 <= count <= 8:
         raise HTTPException(422, "每次请选择 1 至 8 张图片。")
     model_name, prompt = model_name.strip(), prompt.strip()
@@ -69,6 +71,8 @@ def create_jobs(engine, directory, config_id, model_name, prompt, size, request_
         inputs.append(count)
     if template_request:
         inputs.append(template_request)
+    if product_request:
+        inputs.append(product_request)
     fingerprint = hashlib.sha256(json.dumps(inputs, ensure_ascii=False).encode()).hexdigest()
     request_ids = [request_id] + [str(uuid5(UUID(request_id), f"image-{index}")) for index in range(1, count)]
     with Session(engine) as session:
@@ -84,8 +88,16 @@ def create_jobs(engine, directory, config_id, model_name, prompt, size, request_
         if prior:
             return prior
         snapshot = {}
+        product_snapshot = {}
+        if product_request:
+            product_snapshot, reference = resolve_product(session, directory, product_request, reference)
         if template_request:
             prompt, snapshot = render_template(session, template_request, prompt)
+        if product_snapshot:
+            facts = {key: product_snapshot[key] for key in ('sku', 'name', 'category', 'dimensions', 'color', 'facts', 'notes')}
+            prompt += '\n\n产品资料（只使用已提供信息，不推测缺失参数）：\n' + json.dumps(facts, ensure_ascii=False)
+        if len(prompt) > 32000:
+            raise HTTPException(422, '合并后的创作要求过长，请精简模板或产品资料。')
         config = session.get(ModelConfiguration, config_id)
         if config is None:
             raise HTTPException(404, "请先保存模型配置。")
@@ -110,6 +122,7 @@ def create_jobs(engine, directory, config_id, model_name, prompt, size, request_
                 path.write_bytes(reference)
             session.add(row)
             row.template_snapshot = json.dumps(snapshot, ensure_ascii=False)
+            row.product_snapshot = json.dumps(product_snapshot, ensure_ascii=False)
             rows.append(row)
         try:
             session.commit()
@@ -180,7 +193,7 @@ def build_image_router(engine, directory: Path):
         return create_job(engine, directory, str(config_id), model_name, prompt, size, str(request_id), content)
 
     @router.post("/batch", response_model=list[JobView], status_code=202)
-    def submit_batch(config_id: Annotated[UUID, Form()], request_id: Annotated[UUID, Form()], prompt: Annotated[str, Form(max_length=8000)] = "", count: Annotated[int, Form(ge=1, le=8)] = 4, size: Annotated[Literal["default", "1024x1024", "1536x1024", "1024x1536"], Form()] = "default", reference: Annotated[UploadFile | None, File()] = None, template: Annotated[str, Form(max_length=240000)] = ""):
+    def submit_batch(config_id: Annotated[UUID, Form()], request_id: Annotated[UUID, Form()], prompt: Annotated[str, Form(max_length=8000)] = "", count: Annotated[int, Form(ge=1, le=8)] = 4, size: Annotated[Literal["default", "1024x1024", "1536x1024", "1024x1536"], Form()] = "default", reference: Annotated[UploadFile | None, File()] = None, template: Annotated[str, Form(max_length=240000)] = "", product: Annotated[str, Form(max_length=2000)] = ""):
         require_database()
         content = reference.file.read(MAX_IMAGE + 1) if reference else None
         # Resolve the model exclusively from its saved configuration.
@@ -188,9 +201,12 @@ def build_image_router(engine, directory: Path):
             template_request = json.loads(template) if template else None
             if template and (not isinstance(template_request, dict) or not template_request):
                 raise ValueError()
+            product_request = json.loads(product) if product else None
+            if product and (not isinstance(product_request, dict) or not product_request):
+                raise ValueError()
         except ValueError:
             raise HTTPException(422, "模板参数格式无效。") from None
-        return create_jobs(engine, directory, str(config_id), "", prompt, size, str(request_id), content, count, template_request)
+        return create_jobs(engine, directory, str(config_id), "", prompt, size, str(request_id), content, count, template_request, product_request)
 
     @router.get("/{job_id}", response_model=JobView)
     def get_job(job_id: UUID):

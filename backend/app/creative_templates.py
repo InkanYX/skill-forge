@@ -126,7 +126,7 @@ def build_creative_router(engine):
         return save(data, identifier)
 
     def case_view(row, job):
-        return {"id": row.id, "job_id": row.job_id, "title": row.title, "experience": row.experience, "issues": row.issues, "updated_at": row.updated_at, "image_url": f"/api/image-jobs/{row.job_id}/image", "prompt": job.prompt, "model_name": job.model_name, "template_snapshot": json.loads(job.template_snapshot)}
+        return {"id": row.id, "job_id": row.job_id, "title": row.title, "experience": row.experience, "issues": row.issues, "updated_at": row.updated_at, "image_url": f"/api/image-jobs/{row.job_id}/image", "prompt": job.prompt, "model_name": job.model_name, "product_snapshot": json.loads(job.product_snapshot), "template_snapshot": json.loads(job.template_snapshot)}
 
     @router.get('/cases')
     def list_cases():
