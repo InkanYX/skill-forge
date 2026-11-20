@@ -1,0 +1,72 @@
+import { useEffect, useRef, useState } from 'react';
+import { fetchHealth, type HealthResponse } from './api';
+import ModelSettings from './ModelSettings';
+
+type Connection =
+  | { state: 'loading' }
+  | { state: 'online'; health: HealthResponse }
+  | { state: 'offline'; message: string };
+
+export default function App() {
+  const [connection, setConnection] = useState<Connection>({ state: 'loading' });
+  const [attempt, setAttempt] = useState(0);
+  const controllerRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    controllerRef.current = controller;
+    let active = true;
+    let timedOut = false;
+    setConnection({ state: 'loading' });
+    const timeout = window.setTimeout(() => { timedOut = true; controller.abort(); }, 8000);
+    fetchHealth(controller.signal)
+      .then((health) => { if (active) setConnection({ state: 'online', health }); })
+      .catch((error: unknown) => {
+        if (!active) return;
+        setConnection({ state: 'offline', message: timedOut ? '连接超时，请检查后端是否启动。' :
+          error instanceof Error ? error.message : '暂时无法连接后端' });
+      })
+      .finally(() => window.clearTimeout(timeout));
+    return () => { active = false; window.clearTimeout(timeout); controller.abort(); };
+  }, [attempt]);
+
+  return (
+    <div className="app-shell">
+      <aside className="sidebar">
+        <a className="brand" href="/" aria-label="Skill Forge 首页">
+          <span className="brand-icon">SF</span><span>Skill Forge<small>电商图片工作台</small></span>
+        </a>
+        <div className="workspace-label">个人工作空间</div>
+        <nav aria-label="工作空间导航"><a className="nav-active" href="#workspace">我的工作台</a><a className="nav-link" href="#model-settings-heading">个人模型配置</a></nav>
+        <div className="sidebar-note"><span className="note-label">开发阶段 · 02</span><p>从产品素材到可复用的制作经验。</p><small>个人模型配置已接入</small></div>
+      </aside>
+
+      <div className="main-shell">
+        <header className="topbar"><span>工作空间 / 我的工作台</span><span className="environment">本机开发环境</span></header>
+        <main id="workspace">
+          <div className="page-heading"><div><p className="eyebrow">YOUR CREATIVE WORKSPACE</p><h1>把每一次制作，变成下一次的经验。</h1><p className="subtitle">围绕车棚、凉棚产品，逐步建立素材、配方、图片与案例的完整联系。</p></div><span className="version-badge">v0.1.0</span></div>
+
+          <ModelSettings />
+
+          <section className="connection-card" aria-labelledby="connection-heading">
+            <div className="connection-top"><div><span className="section-label">工程连通检查</span><h2 id="connection-heading">你的工作台已就位</h2></div><span className={`status status-${connection.state}`} role="status">{connection.state === 'loading' ? '正在连接后端' : connection.state === 'online' ? '后端连接正常' : '后端未连接'}</span></div>
+            <p className="connection-description">当前页面实时检查 FastAPI 服务。模型配置已使用本机加密存储，后续迁移到 PostgreSQL。</p>
+            <div className="service-grid">
+              <div><span>前端应用</span><strong>React + TypeScript</strong><small>浏览器页面已加载</small></div>
+              <div><span>业务接口</span><strong>Python + FastAPI</strong><small>{connection.state === 'online' ? `${connection.health.service} · ${connection.health.version}` : connection.state === 'loading' ? '等待健康检查响应…' : '请确认 8000 端口上的服务已启动'}</small></div>
+              <div><span>数据库</span><strong>尚未接入</strong><small>当前健康检查不依赖数据库</small></div>
+            </div>
+            <div className="connection-footer"><p aria-live="polite">{connection.state === 'online' ? `后端响应时间：${new Date(connection.health.timestamp).toLocaleString('zh-CN')}` : connection.state === 'offline' ? connection.message : '正在请求 /api/health'}</p><button type="button" disabled={connection.state === 'loading'} onClick={() => { controllerRef.current?.abort(); setAttempt((value) => value + 1); }}>重新检查</button></div>
+          </section>
+
+          <section className="next-section" aria-labelledby="next-heading"><div className="section-heading"><h2 id="next-heading">接下来，一步步跑通制作流程</h2><span>后续开发内容</span></div><div className="roadmap">
+            <article><span className="step-icon">素材</span><h3>建立产品资料</h3><p>关联 SKU、实拍与尺寸，让每次制作都有准确的产品依据。</p><span className="planned">待实现</span></article>
+            <article><span className="step-icon">配方</span><h3>沉淀生图方法</h3><p>配置提示词、自然语言 Skill 和参考案例，复用有效经验。</p><span className="planned">待实现</span></article>
+            <article><span className="step-icon">作品</span><h3>完成制作与交付</h3><p>生成、比较、修改和导出图片，保留完整制作记录。</p><span className="planned">待实现</span></article>
+          </div></section>
+          <footer className="page-footer">Skill Forge · 图片制作与经验复用<span>个人模型配置 / 图片生成功能待开发</span></footer>
+        </main>
+      </div>
+    </div>
+  );
+}
