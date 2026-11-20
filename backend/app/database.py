@@ -64,6 +64,25 @@ class ImageJob(Base):
     created_at: Mapped[str] = mapped_column(String(40), index=True)
     updated_at: Mapped[str] = mapped_column(String(40))
     lease_until: Mapped[float | None] = mapped_column(Float, nullable=True)
+    template_snapshot: Mapped[str] = mapped_column(Text, default="{}")
+
+
+class CreativeTemplate(Base):
+    __tablename__ = "creative_templates"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    content: Mapped[str] = mapped_column(Text)
+    revision: Mapped[int] = mapped_column(default=1)
+    updated_at: Mapped[str] = mapped_column(String(40))
+
+
+class CreativeCase(Base):
+    __tablename__ = "creative_cases"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    job_id: Mapped[str] = mapped_column(String(36), unique=True)
+    title: Mapped[str] = mapped_column(String(120))
+    experience: Mapped[str] = mapped_column(Text)
+    issues: Mapped[str] = mapped_column(Text)
+    updated_at: Mapped[str] = mapped_column(String(40))
 
 
 class DatabaseConfigStore(FileConfigStore):
@@ -132,6 +151,8 @@ def storage_status(engine: Engine | None) -> dict:
             connection.execute(text("SELECT 1"))
             connection.execute(select(ModelConfiguration.id).limit(0))
             connection.execute(select(ImageJob.id).limit(0))
+            connection.execute(select(CreativeTemplate.id).limit(0))
+            connection.execute(select(CreativeCase.id).limit(0))
         return {"storage": "postgresql", "status": "ready", "message": "数据库连接、模型配置与生图任务表检查通过"}
     except Exception:
         return {"storage": "postgresql", "status": "unavailable", "message": "数据库未连接或表结构未就绪，请检查数据库并运行迁移。"}

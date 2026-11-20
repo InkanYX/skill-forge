@@ -15,6 +15,7 @@ from app.database import DatabaseConfigStore, database_url, data_directory, make
 
 from app.model_configs import FileConfigStore, build_router, probe_models
 from app.image_jobs import build_image_router
+from app.creative_templates import build_creative_router
 
 VERSION = "0.1.0"
 
@@ -43,7 +44,7 @@ def create_app(data_dir: Path | None = None, probe=probe_models, db_url: str | N
 
     @application.middleware("http")
     async def local_origin_guard(request: Request, call_next):
-        if request.url.path.startswith(("/api/model-configs", "/api/image-jobs")):
+        if request.url.path.startswith(("/api/model-configs", "/api/image-jobs", "/api/templates", "/api/cases")):
             origin = request.headers.get("origin")
             allowed = {f"http://{host}:{port}" for host in ("localhost", "127.0.0.1") for port in (5173, 8000)}
             if origin and origin not in allowed:
@@ -52,10 +53,10 @@ def create_app(data_dir: Path | None = None, probe=probe_models, db_url: str | N
             length = request.headers.get("content-length", "")
             if request.url.path.startswith("/api/image-jobs") and request.method == "POST" and (content_type != "multipart/form-data" or not length.isdecimal() or int(length) > 21 * 1024 * 1024):
                 return JSONResponse(status_code=413, content={"detail": "请使用不超过 20 MB 的参考图片提交。"})
-            if request.url.path.startswith("/api/model-configs") and request.method in ("POST", "PUT") and content_type != "application/json":
+            if request.url.path.startswith(("/api/model-configs", "/api/templates", "/api/cases")) and request.method in ("POST", "PUT") and (content_type != "application/json" or not length.isdecimal() or int(length) > 256000):
                 return JSONResponse(status_code=415, content={"detail": "请使用 JSON 请求。"})
         response = await call_next(request)
-        if request.url.path.startswith(("/api/model-configs", "/api/image-jobs")):
+        if request.url.path.startswith(("/api/model-configs", "/api/image-jobs", "/api/templates", "/api/cases")):
             response.headers["Cache-Control"] = "no-store"
         return response
 
@@ -76,6 +77,7 @@ def create_app(data_dir: Path | None = None, probe=probe_models, db_url: str | N
     store = DatabaseConfigStore(directory, engine) if engine else FileConfigStore(directory)
     application.include_router(build_router(store, probe))
     application.include_router(build_image_router(engine, directory))
+    application.include_router(build_creative_router(engine))
     router = APIRouter(prefix="/api")
 
     @router.get("/system/status", tags=["system"])

@@ -254,3 +254,61 @@ def test_text_only_batch_requires_saved_model(setup):
         response = client.post('/api/image-jobs/batch', files={key: (None, value) for key, value in fields.items()})
         assert response.status_code == 422
         assert len(client.get('/api/image-jobs').json()) == 2
+
+
+def test_template_snapshot_revision_retry_and_case_roundtrip(setup):
+    import json
+    engine, directory, config = setup
+    with TestClient(create_app(directory, db_url=str(engine.url))) as client:
+        draft = {'name': '庭院模板', 'prompt': '为{{ 产品 }}制作庭院图', 'skill': '保持{{颜色}}与真实结构', 'notes': '不增加配件', 'count': 2}
+        template = client.post('/api/templates', json=draft).json()
+        assert template['revision'] == 1 and template['variables'] == ['产品', '颜色']
+        fields = {'config_id': config.id, 'request_id': str(uuid4()), 'prompt': '自然光', 'count': '2', 'template': json.dumps({'id': template['id'], 'revision': 1, 'variables': {'产品': '凉棚', '颜色': '深灰'}})}
+        def submit():
+            return client.post('/api/image-jobs/batch', files={key: (None, value) for key, value in fields.items()})
+        response = submit()
+        assert response.status_code == 202
+        jobs = response.json()
+        assert len(jobs) == 2 and '凉棚' in jobs[0]['prompt'] and '深灰' in jobs[0]['prompt']
+        assert jobs[0]['template_snapshot']['skill'] == draft['skill']
+        changed = client.put(f"/api/templates/{template['id']}", json={**draft, 'revision': 1, 'skill': '新方法'}).json()
+        assert changed['revision'] == 2
+        assert client.put(f"/api/templates/{template['id']}", json={**draft, 'revision': 1}).status_code == 409
+        assert [item['id'] for item in submit().json()] == [item['id'] for item in jobs]
+        fields['request_id'] = str(uuid4())
+        assert submit().status_code == 409
+        case = {'job_id': jobs[0]['id'], 'title': '庭院展示', 'experience': '保留结构有效', 'issues': '还需人工核对颜色'}
+        assert client.post('/api/cases', json=case).status_code == 422
+        assert process_one(engine, directory, lambda *args: png())
+        saved = client.post('/api/cases', json=case)
+        assert saved.status_code == 200
+        assert client.post('/api/cases', json={**case, 'experience': '更新经验'}).json()['id'] == saved.json()['id']
+        cases = client.get('/api/cases').json()
+        assert len(cases) == 1 and cases[0]['experience'] == '更新经验'
+        assert cases[0]['template_snapshot']['revision'] == 1
+        assert cases[0]['template_snapshot']['skill'] == draft['skill']
+        assert KEY not in str(cases)
+
+
+@pytest.mark.parametrize('template_request', [[], {'id': 5, 'revision': 1, 'variables': {}}, {'id': str(uuid4()), 'revision': 1, 'variables': {}}])
+def test_invalid_template_request_cannot_create_jobs(setup, template_request):
+    import json
+    engine, directory, config = setup
+    with TestClient(create_app(directory, db_url=str(engine.url))) as client:
+        fields = {'config_id': config.id, 'request_id': str(uuid4()), 'prompt': '', 'template': json.dumps(template_request)}
+        response = client.post('/api/image-jobs/batch', files={key: (None, value) for key, value in fields.items()})
+        assert response.status_code in (404, 422)
+        assert client.get('/api/image-jobs').json() == []
+
+
+def test_template_missing_variables_and_origin_guard(setup):
+    import json
+    engine, directory, config = setup
+    with TestClient(create_app(directory, db_url=str(engine.url))) as client:
+        draft = {'name': '模板', 'prompt': '{{产品}}'}
+        assert client.post('/api/templates', json=draft, headers={'Origin': 'https://bad.example'}).status_code == 403
+        template = client.post('/api/templates', json=draft).json()
+        fields = {'config_id': config.id, 'request_id': str(uuid4()), 'template': json.dumps({'id': template['id'], 'revision': 1, 'variables': {}})}
+        response = client.post('/api/image-jobs/batch', files={key: (None, value) for key, value in fields.items()})
+        assert response.status_code == 422
+        assert client.get('/api/image-jobs').json() == []

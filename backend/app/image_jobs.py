@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from app.database import ImageJob, ModelConfiguration, DatabaseConfigStore
 from app.image_provider import MAX_IMAGE, GenerationError, generate_image, normalize_image
+from app.creative_templates import render_template
 
 
 def now() -> str:
@@ -36,11 +37,12 @@ class JobView(BaseModel):
     updated_at: str
     image_url: str | None = None
     reference_url: str | None = None
+    template_snapshot: dict = {}
 
 
 def view(row: ImageJob) -> JobView:
     fields = {name: getattr(row, name) for name in ("id", "config_name", "model_name", "prompt", "size", "mode", "status", "message", "created_at", "updated_at")}
-    return JobView(**fields, image_url=f"/api/image-jobs/{row.id}/image" if row.status == "succeeded" else None, reference_url=f"/api/image-jobs/{row.id}/reference" if row.mode == "edit" else None)
+    return JobView(**fields, template_snapshot=json.loads(row.template_snapshot or '{}'), image_url=f"/api/image-jobs/{row.id}/image" if row.status == "succeeded" else None, reference_url=f"/api/image-jobs/{row.id}/reference" if row.mode == "edit" else None)
 
 
 def artifact(directory: Path, identifier: str, name: str) -> Path:
@@ -51,11 +53,11 @@ def create_job(engine, directory, config_id, model_name, prompt, size, request_i
     return create_jobs(engine, directory, config_id, model_name, prompt, size, request_id, reference, 1)[0]
 
 
-def create_jobs(engine, directory, config_id, model_name, prompt, size, request_id, reference, count):
+def create_jobs(engine, directory, config_id, model_name, prompt, size, request_id, reference, count, template_request=None):
     if not 1 <= count <= 8:
         raise HTTPException(422, "每次请选择 1 至 8 张图片。")
     model_name, prompt = model_name.strip(), prompt.strip()
-    if not prompt:
+    if not prompt and not template_request:
         raise HTTPException(422, "请填写图片要求。")
     if reference is not None:
         try:
@@ -65,6 +67,8 @@ def create_jobs(engine, directory, config_id, model_name, prompt, size, request_
     inputs = [config_id, model_name, prompt, size, hashlib.sha256(reference).hexdigest() if reference else None]
     if count > 1:
         inputs.append(count)
+    if template_request:
+        inputs.append(template_request)
     fingerprint = hashlib.sha256(json.dumps(inputs, ensure_ascii=False).encode()).hexdigest()
     request_ids = [request_id] + [str(uuid5(UUID(request_id), f"image-{index}")) for index in range(1, count)]
     with Session(engine) as session:
@@ -79,6 +83,9 @@ def create_jobs(engine, directory, config_id, model_name, prompt, size, request_
         prior = existing()
         if prior:
             return prior
+        snapshot = {}
+        if template_request:
+            prompt, snapshot = render_template(session, template_request, prompt)
         config = session.get(ModelConfiguration, config_id)
         if config is None:
             raise HTTPException(404, "请先保存模型配置。")
@@ -102,6 +109,7 @@ def create_jobs(engine, directory, config_id, model_name, prompt, size, request_
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_bytes(reference)
             session.add(row)
+            row.template_snapshot = json.dumps(snapshot, ensure_ascii=False)
             rows.append(row)
         try:
             session.commit()
@@ -172,11 +180,17 @@ def build_image_router(engine, directory: Path):
         return create_job(engine, directory, str(config_id), model_name, prompt, size, str(request_id), content)
 
     @router.post("/batch", response_model=list[JobView], status_code=202)
-    def submit_batch(config_id: Annotated[UUID, Form()], request_id: Annotated[UUID, Form()], prompt: Annotated[str, Form(min_length=1, max_length=8000)], count: Annotated[int, Form(ge=1, le=8)] = 4, size: Annotated[Literal["default", "1024x1024", "1536x1024", "1024x1536"], Form()] = "default", reference: Annotated[UploadFile | None, File()] = None):
+    def submit_batch(config_id: Annotated[UUID, Form()], request_id: Annotated[UUID, Form()], prompt: Annotated[str, Form(max_length=8000)] = "", count: Annotated[int, Form(ge=1, le=8)] = 4, size: Annotated[Literal["default", "1024x1024", "1536x1024", "1024x1536"], Form()] = "default", reference: Annotated[UploadFile | None, File()] = None, template: Annotated[str, Form(max_length=240000)] = ""):
         require_database()
         content = reference.file.read(MAX_IMAGE + 1) if reference else None
         # Resolve the model exclusively from its saved configuration.
-        return create_jobs(engine, directory, str(config_id), "", prompt, size, str(request_id), content, count)
+        try:
+            template_request = json.loads(template) if template else None
+            if template and (not isinstance(template_request, dict) or not template_request):
+                raise ValueError()
+        except ValueError:
+            raise HTTPException(422, "模板参数格式无效。") from None
+        return create_jobs(engine, directory, str(config_id), "", prompt, size, str(request_id), content, count, template_request)
 
     @router.get("/{job_id}", response_model=JobView)
     def get_job(job_id: UUID):
