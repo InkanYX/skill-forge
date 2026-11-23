@@ -19,6 +19,7 @@ from app.creative_templates import build_creative_router
 from app.products import build_product_router
 from app.image_exports import build_export_router
 from app.skills import build_skill_router
+from app.workspace import build_workspace_router
 
 VERSION = "0.1.0"
 
@@ -47,7 +48,7 @@ def create_app(data_dir: Path | None = None, probe=probe_models, db_url: str | N
 
     @application.middleware("http")
     async def local_origin_guard(request: Request, call_next):
-        if request.url.path.startswith(("/api/model-configs", "/api/image-jobs", "/api/templates", "/api/cases", "/api/products", "/api/skills")):
+        if request.url.path.startswith(("/api/model-configs", "/api/image-jobs", "/api/templates", "/api/cases", "/api/products", "/api/skills", "/api/workspace")):
             origin = request.headers.get("origin")
             allowed = {f"http://{host}:{port}" for host in ("localhost", "127.0.0.1") for port in (5173, 8000)}
             if origin and origin not in allowed:
@@ -60,7 +61,7 @@ def create_app(data_dir: Path | None = None, probe=probe_models, db_url: str | N
             if not asset_upload and request.url.path.startswith(("/api/model-configs", "/api/templates", "/api/cases", "/api/products", "/api/skills")) and request.method in ("POST", "PUT") and (content_type != "application/json" or not length.isdecimal() or int(length) > 256000):
                 return JSONResponse(status_code=415, content={"detail": "请使用 JSON 请求。"})
         response = await call_next(request)
-        if request.url.path.startswith(("/api/model-configs", "/api/image-jobs", "/api/templates", "/api/cases", "/api/products", "/api/skills")):
+        if request.url.path.startswith(("/api/model-configs", "/api/image-jobs", "/api/templates", "/api/cases", "/api/products", "/api/skills", "/api/workspace")):
             response.headers["Cache-Control"] = "no-store"
         return response
 
@@ -84,6 +85,7 @@ def create_app(data_dir: Path | None = None, probe=probe_models, db_url: str | N
     application.include_router(build_export_router(engine, directory))
     application.include_router(build_creative_router(engine))
     application.include_router(build_skill_router(engine))
+    application.include_router(build_workspace_router(engine))
     application.include_router(build_product_router(engine, directory))
     router = APIRouter(prefix="/api")
 

@@ -18,7 +18,7 @@ const labels: Record<string, string> = { all: '全部状态', succeeded: '已完
 
 export default function ArtworkLibrary() {
   const [products, setProducts] = useState<Product[]>([]); const [templates, setTemplates] = useState<CreativeTemplate[]>([]);
-  const [productId, setProductId] = useState(''); const [templateId, setTemplateId] = useState(''); const [status, setStatus] = useState('succeeded');
+  const [productId, setProductId] = useState(''); const [templateId, setTemplateId] = useState(''); const [status, setStatus] = useState(() => { const value = new URLSearchParams(window.location.hash.split('?')[1] || '').get('status') || 'succeeded'; return Object.hasOwn(labels, value) ? value : 'succeeded'; });
   const [search, setSearch] = useState(''); const [query, setQuery] = useState(''); const [page, setPage] = useState(1); const [attempt, setAttempt] = useState(0);
   const [result, setResult] = useState<ArtworkPage>(); const [loading, setLoading] = useState(true); const [error, setError] = useState(''); const [filterError, setFilterError] = useState('');
   const [selected, setSelected] = useState<Artwork>(); const [caseSaved, setCaseSaved] = useState(false); const [caseDirty, setCaseDirty] = useState(false); const [caseBusy, setCaseBusy] = useState(false);
