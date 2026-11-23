@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import ModelSettings from './ModelSettings';
 import ImageStudio from './ImageStudio';
 import TemplateLibrary from './TemplateLibrary';
-import CaseLibrary from './CaseLibrary';
 import ProductLibrary from './ProductLibrary';
 import ArtworkLibrary from './ArtworkLibrary';
 import ImageRevision from './ImageRevision';
@@ -14,15 +13,16 @@ const pages = [
   { id: 'workspace', href: '#/', title: '我的工作台' },
   { id: 'studio', href: '#/studio', title: '图片创作' },
   { id: 'library', href: '#/library', title: '作品库' },
-  { id: 'products', href: '#/products', title: '产品档案' },
+  { id: 'products', href: '#/products', title: '产品资料' },
   { id: 'templates', href: '#/templates', title: '创作模板' },
-  { id: 'cases', href: '#/cases', title: '案例库' },
   { id: 'settings', href: '#/settings', title: '个人模型配置' },
 ] as const;
+function currentRoute() {
+  return window.location.hash.split('?')[0] === '#/cases' ? '#/library?notes=1' : window.location.hash;
+}
 function currentPage() {
-  const hash = window.location.hash.split('?')[0];
+  const hash = currentRoute().split('?')[0];
   if (hash === '#/templates') return 'templates';
-  if (hash === '#/cases') return 'cases';
   if (hash === '#/products') return 'products';
   if (hash === '#/library') return 'library';
   if (hash === '#/edit') return 'edit';
@@ -34,9 +34,14 @@ function currentPage() {
 
 export default function App() {
   const [page, setPage] = useState(currentPage);
-  const [route, setRoute] = useState(() => window.location.hash);
+  const [route, setRoute] = useState(currentRoute);
   useEffect(() => {
-    const navigate = () => { setPage(currentPage()); setRoute(window.location.hash); window.scrollTo(0, 0); };
+    const navigate = () => {
+      const route = currentRoute();
+      if (route !== window.location.hash) window.history.replaceState(null, '', route);
+      setPage(currentPage()); setRoute(route); window.scrollTo(0, 0);
+    };
+    navigate();
     window.addEventListener('hashchange', navigate);
     return () => window.removeEventListener('hashchange', navigate);
   }, []);
@@ -58,7 +63,6 @@ export default function App() {
           {page === 'studio' && <ImageStudio />}
           {page === 'settings' && <ModelSettings />}
           {page === 'templates' && <TemplateLibrary />}
-          {page === 'cases' && <CaseLibrary />}
           {page === 'products' && <ProductLibrary />}
           {page === 'library' && <ArtworkLibrary key={route} />}
           {page === 'edit' && <ImageRevision key={route} />}

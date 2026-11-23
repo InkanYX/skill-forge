@@ -44,6 +44,7 @@ class JobView(BaseModel):
     parent_job_id: str | None = None
     edit_instruction: str = ''
     case_id: str | None = None
+    is_favorite: bool = False
     set_id: str | None = None
     set_name: str = ''
     shot_name: str = ''
@@ -88,7 +89,7 @@ class LibraryPage(BaseModel):
 
 def view(row: ImageJob) -> JobView:
     fields = {name: getattr(row, name) for name in ("id", "config_id", "parent_job_id", "edit_instruction", "set_id", "set_name", "shot_name", "shot_index", "config_name", "model_name", "prompt", "size", "mode", "status", "message", "created_at", "updated_at")}
-    return JobView(**fields, product_snapshot=json.loads(row.product_snapshot or '{}'), template_snapshot=json.loads(row.template_snapshot or '{}'), image_url=f"/api/image-jobs/{row.id}/image" if row.status == "succeeded" else None, reference_url=f"/api/image-jobs/{row.id}/reference" if row.mode == "edit" else None)
+    return JobView(**fields, is_favorite=row.is_favorite, product_snapshot=json.loads(row.product_snapshot or '{}'), template_snapshot=json.loads(row.template_snapshot or '{}'), image_url=f"/api/image-jobs/{row.id}/image" if row.status == "succeeded" else None, reference_url=f"/api/image-jobs/{row.id}/reference" if row.mode == "edit" else None)
 
 
 def artifact(directory: Path, identifier: str, name: str) -> Path:
@@ -326,7 +327,7 @@ def build_image_router(engine, directory: Path):
         return cancel_job(engine, str(job_id))
 
     @router.get('/library', response_model=LibraryPage)
-    def library(page: Annotated[int, Query(ge=1, le=100000)] = 1, page_size: Annotated[int, Query(ge=1, le=48)] = 12, status: Literal['all', 'queued', 'running', 'succeeded', 'failed', 'unknown', 'cancelled'] = 'succeeded', q: Annotated[str, Query(max_length=200)] = '', product_id: UUID | None = None, template_id: UUID | None = None):
+    def library(page: Annotated[int, Query(ge=1, le=100000)] = 1, page_size: Annotated[int, Query(ge=1, le=48)] = 12, status: Literal['all', 'queued', 'running', 'succeeded', 'failed', 'unknown', 'cancelled'] = 'succeeded', q: Annotated[str, Query(max_length=200)] = '', product_id: UUID | None = None, template_id: UUID | None = None, favorite: bool = False, has_notes: bool = False):
         require_database()
         product = cast(ImageJob.product_snapshot, JSON)
         template = cast(ImageJob.template_snapshot, JSON)
@@ -337,6 +338,10 @@ def build_image_router(engine, directory: Path):
             product = type_coerce(ImageJob.product_snapshot, JSON)
             template = type_coerce(ImageJob.template_snapshot, JSON)
         conditions = []
+        if favorite:
+            conditions.append(ImageJob.is_favorite.is_(True))
+        if has_notes:
+            conditions.append(select(CreativeCase.id).where(CreativeCase.job_id == ImageJob.id).correlate(ImageJob).exists())
         if status != 'all':
             conditions.append(ImageJob.status == status)
         if product_id:
@@ -344,11 +349,26 @@ def build_image_router(engine, directory: Path):
         if template_id:
             conditions.append(template['id'].as_string() == str(template_id))
         if q.strip():
-            conditions.append(or_(ImageJob.prompt.icontains(q.strip(), autoescape=True), ImageJob.model_name.icontains(q.strip(), autoescape=True), ImageJob.set_name.icontains(q.strip(), autoescape=True), ImageJob.shot_name.icontains(q.strip(), autoescape=True), product['sku'].as_string().icontains(q.strip(), autoescape=True), product['name'].as_string().icontains(q.strip(), autoescape=True), template['name'].as_string().icontains(q.strip(), autoescape=True)))
+            note_match = select(CreativeCase.id).where(CreativeCase.job_id == ImageJob.id, or_(*(column.icontains(q.strip(), autoescape=True) for column in (CreativeCase.title, CreativeCase.experience, CreativeCase.issues)))).correlate(ImageJob).exists()
+            conditions.append(or_(ImageJob.prompt.icontains(q.strip(), autoescape=True), ImageJob.model_name.icontains(q.strip(), autoescape=True), ImageJob.set_name.icontains(q.strip(), autoescape=True), ImageJob.shot_name.icontains(q.strip(), autoescape=True), product['sku'].as_string().icontains(q.strip(), autoescape=True), product['name'].as_string().icontains(q.strip(), autoescape=True), template['name'].as_string().icontains(q.strip(), autoescape=True), note_match))
         with Session(engine) as session:
             total = session.scalar(select(func.count()).select_from(ImageJob).where(*conditions))
             rows = session.execute(select(ImageJob, CreativeCase.id).outerjoin(CreativeCase, CreativeCase.job_id == ImageJob.id).where(*conditions).order_by(ImageJob.created_at.desc(), ImageJob.id.desc()).offset((page - 1) * page_size).limit(page_size))
             return LibraryPage(items=[LibraryJobView(**{**view(row).model_dump(), 'case_id': case_id}) for row, case_id in rows], total=total, page=page, page_size=page_size)
+
+    @router.post('/{job_id}/favorite', response_model=JobView)
+    def favorite_artwork(job_id: UUID, favorite: Annotated[bool, Form()]):
+        require_database()
+        with Session(engine) as session, session.begin():
+            row = session.get(ImageJob, str(job_id), with_for_update=True)
+            if row is None:
+                raise HTTPException(404, '作品不存在。')
+            if row.status != 'succeeded':
+                raise HTTPException(409, '只能收藏已完成的图片。')
+            # Explicit assignment makes repeated requests safe; do not change
+            # updated_at, which represents the generation completion time.
+            row.is_favorite = favorite
+            return view(row).model_copy(update={'case_id': session.scalar(select(CreativeCase.id).where(CreativeCase.job_id == row.id))})
 
     @router.post("", response_model=JobView, status_code=202)
     def submit(config_id: Annotated[UUID, Form()], request_id: Annotated[UUID, Form()], prompt: Annotated[str, Form(min_length=1, max_length=8000)], model_name: Annotated[str, Form(max_length=200)] = "", size: Annotated[Literal["default", "1024x1024", "1536x1024", "1024x1536"], Form()] = "default", reference: Annotated[UploadFile | None, File()] = None):

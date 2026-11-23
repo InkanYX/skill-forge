@@ -149,11 +149,21 @@ def build_creative_router(engine):
         with Session(engine) as session, session.begin():
             job = session.get(ImageJob, str(data.job_id), with_for_update=True)
             if job is None or job.status != 'succeeded':
-                raise HTTPException(422, "只能将已完成的图片保存为案例。")
+                raise HTTPException(422, "只能为已完成的图片记录经验。")
             row = session.scalar(select(CreativeCase).where(CreativeCase.job_id == job.id))
             if row is None:
                 row = CreativeCase(id=str(uuid4()), job_id=job.id)
                 session.add(row)
             row.title, row.experience, row.issues, row.updated_at = data.title, data.experience, data.issues, timestamp()
             return case_view(row, job)
+
+    @router.get('/cases/{job_id}')
+    def get_artwork_note(job_id: UUID):
+        require_db()
+        with Session(engine) as session:
+            job = session.get(ImageJob, str(job_id))
+            if job is None:
+                raise HTTPException(404, '作品不存在。')
+            row = session.scalar(select(CreativeCase).where(CreativeCase.job_id == job.id))
+            return case_view(row, job) if row else None
     return router

@@ -7,7 +7,7 @@ from uuid import uuid4
 
 from dotenv import dotenv_values
 from fastapi import HTTPException
-from sqlalchemy import String, Text, Float, create_engine, select, text
+from sqlalchemy import String, Text, Float, Boolean, create_engine, select, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, Session
 
@@ -72,6 +72,7 @@ class ImageJob(Base):
     set_name: Mapped[str] = mapped_column(String(100), default="")
     shot_name: Mapped[str] = mapped_column(String(80), default="")
     shot_index: Mapped[int | None] = mapped_column(nullable=True)
+    is_favorite: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text('false'))
 
 
 class Product(Base):

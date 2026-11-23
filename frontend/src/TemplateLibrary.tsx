@@ -45,7 +45,7 @@ export default function TemplateLibrary() {
     } catch (err) { setError(err instanceof Error ? err.message : '保存失败'); } finally { setBusy(false); }
   }
   return <section><div className="section-heading"><div><p className="eyebrow">REUSABLE CREATIVE METHODS</p><h2>创作模板</h2></div><button className="button-secondary" disabled={busy} onClick={() => edit()}>新建模板</button></div>
-    <p className="settings-intro">把有效的制作要求、Skill 和注意事项保存下来，下次只需填写产品信息。</p>
+    <p className="settings-intro">这里保存“怎么画”：画面要求、Skill、注意事项和默认出图参数。生图时套用模板，再选择产品或填写具体信息；产品实拍在产品资料中维护。</p>
     <div className="creation-modes"><span className="creation-mode-active">创作模板</span><a href="#/skills">Skill 管理</a></div>
     <div className="settings-layout"><aside className="config-list"><div className="list-title">已保存模板 · {items.length}</div>{items.map(item => <button type="button" key={item.id} disabled={busy} className={`config-item ${id === item.id ? 'config-item-active' : ''}`} onClick={() => edit(item)}><strong>{item.name}</strong><small>版本 {item.revision} · {item.variables.length} 项产品信息</small></button>)}{!items.length && <p className="empty-config">还没有模板，从右侧示例开始。</p>}</aside>
     <form className="config-form" onSubmit={save}><fieldset disabled={busy}>

@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.database import ImageJob, database_url, make_engine
+from app.database import CreativeCase, ImageJob, database_url, make_engine
 from app.image_jobs import build_image_router
 from app.main import create_app
 from test_image_jobs import setup, enqueue, KEY
@@ -55,6 +55,54 @@ def test_library_filters_historical_product_template_and_literal_search(setup):
         assert client.get('/api/image-jobs/library').json()['items'][0]['case_id'] == saved['id']
 
 
+def test_favorites_are_persistent_idempotent_and_independent_of_notes(setup):
+    engine, directory, _ = setup
+    first, second = enqueue(setup), enqueue(setup)
+    with Session(engine) as session, session.begin():
+        session.get(ImageJob, first.id).status = 'succeeded'
+    with TestClient(create_app(directory, db_url=str(engine.url))) as client:
+        before = client.get(f'/api/image-jobs/{first.id}').json()
+        assert before['is_favorite'] is False
+        for _ in range(2):
+            reply = client.post(f'/api/image-jobs/{first.id}/favorite', files={'favorite': (None, 'true')})
+            assert reply.status_code == 200 and reply.json()['is_favorite'] is True
+            assert reply.json()['updated_at'] == before['updated_at']
+            assert KEY not in reply.text
+        assert client.get('/api/image-jobs/library', params={'favorite': True}).json()['total'] == 1
+        assert client.get('/api/image-jobs/library', params={'favorite': True, 'has_notes': True}).json()['total'] == 0
+        assert client.post(f'/api/image-jobs/{second.id}/favorite', files={'favorite': (None, 'true')}).status_code == 409
+        assert client.post(f'/api/image-jobs/{uuid4()}/favorite', files={'favorite': (None, 'true')}).status_code == 404
+        assert client.post(f'/api/image-jobs/{first.id}/favorite', files={'favorite': (None, 'invalid')}).status_code == 422
+    with TestClient(create_app(directory, db_url=str(engine.url))) as reopened:
+        assert reopened.get(f'/api/image-jobs/{first.id}').json()['is_favorite'] is True
+        assert reopened.post(f'/api/image-jobs/{first.id}/favorite', files={'favorite': (None, 'false')}).json()['is_favorite'] is False
+        assert reopened.get('/api/image-jobs/library', params={'favorite': True}).json()['total'] == 0
+
+
+def test_existing_case_notes_can_be_read_edited_and_searched_in_library(setup):
+    engine, directory, _ = setup
+    first, second = enqueue(setup), enqueue(setup)
+    with Session(engine) as session, session.begin():
+        session.get(ImageJob, first.id).status = 'succeeded'
+        session.get(ImageJob, second.id).status = 'succeeded'
+    with TestClient(create_app(directory, db_url=str(engine.url))) as client:
+        assert client.get(f'/api/cases/{first.id}').json() is None
+        assert client.get(f'/api/cases/{uuid4()}').status_code == 404
+        saved = client.post('/api/cases', json={'job_id': first.id, 'title': '连接特写', 'experience': '参考图改善比例', 'issues': '文字存在 50%_偏差'}).json()
+        assert client.get(f'/api/cases/{first.id}').json() == saved
+        for query in ['连接特写', '改善比例', '%_偏差']:
+            result = client.get('/api/image-jobs/library', params={'has_notes': True, 'q': query}).json()
+            assert result['total'] == 1 and result['items'][0]['id'] == first.id
+        assert client.get('/api/image-jobs/library', params={'has_notes': True, 'page': 2, 'page_size': 1}).json()['items'] == []
+        client.post(f'/api/image-jobs/{first.id}/favorite', files={'favorite': (None, 'true')})
+        assert client.get('/api/image-jobs/library', params={'favorite': True, 'has_notes': True}).json()['total'] == 1
+        updated = client.post('/api/cases', json={'job_id': first.id, 'title': saved['title'], 'experience': '补充结构参考更有效', 'issues': saved['issues']}).json()
+        assert updated['id'] == saved['id'] and updated['issues'] == saved['issues']
+        assert client.get(f'/api/cases/{first.id}').json()['experience'] == '补充结构参考更有效'
+        assert len(client.get('/api/cases').json()) == 1
+        assert client.get('/api/image-jobs/library', params={'q': '改善比例'}).json()['total'] == 0
+
+
 @pytest.mark.parametrize('params', [{'page': 0}, {'page_size': 1000}, {'product_id': 'invalid'}, {'status': 'invalid'}, {'q': 'a' * 201}])
 def test_library_rejects_invalid_query_parameters(setup, params):
     engine, directory, _ = setup
@@ -75,7 +123,8 @@ def test_library_json_filters_on_postgres_are_rolled_back(tmp_path):
             transaction = connection.begin()
             try:
                 with Session(connection) as session:
-                    session.add(ImageJob(id=identifier, request_id=str(uuid4()), fingerprint='0' * 64, config_id=str(uuid4()), config_name='测试', base_url='https://example.com/v1', encrypted_key='', model_name='test', prompt='rolled-back-library-test', size='default', mode='generate', status='succeeded', message='test', created_at='2026-01-01', updated_at='2026-01-01', product_snapshot=json.dumps({'id': product_id, 'sku': 'TEST-PG'}), template_snapshot='{}'))
+                    session.add(ImageJob(id=identifier, request_id=str(uuid4()), fingerprint='0' * 64, config_id=str(uuid4()), config_name='测试', base_url='https://example.com/v1', encrypted_key='', model_name='test', prompt='rolled-back-library-test', size='default', mode='generate', status='succeeded', message='test', created_at='2026-01-01', updated_at='2026-01-01', product_snapshot=json.dumps({'id': product_id, 'sku': 'TEST-PG'}), template_snapshot='{}', is_favorite=True))
+                    session.add(CreativeCase(id=str(uuid4()), job_id=identifier, title='PG 经验', experience='立柱参考', issues='', updated_at='2026-01-01'))
                     session.commit()
                 application = FastAPI()
                 application.include_router(build_image_router(connection, tmp_path))
@@ -83,6 +132,8 @@ def test_library_json_filters_on_postgres_are_rolled_back(tmp_path):
                     response = client.get('/api/image-jobs/library', params={'product_id': product_id, 'q': 'test-pg'})
                     assert response.status_code == 200 and response.json()['total'] == 1
                     assert response.json()['items'][0]['id'] == identifier
+                    filtered = client.get('/api/image-jobs/library', params={'favorite': True, 'has_notes': True, 'q': '立柱参考'})
+                    assert filtered.status_code == 200 and filtered.json()['total'] == 1
             finally:
                 transaction.rollback()
         with Session(engine) as session:
