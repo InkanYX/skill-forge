@@ -20,6 +20,7 @@ from app.image_provider import MAX_IMAGE, GenerationError, generate_image, norma
 from app.creative_templates import render_template
 from app.products import resolve_product
 from app.model_configs import configured_models
+from app.image_sizes import ImageSize, normalize_size
 
 
 def now() -> str:
@@ -55,7 +56,7 @@ class JobView(BaseModel):
 class ShotInput(BaseModel):
     name: str = Field(min_length=1, max_length=80)
     prompt: str = Field(min_length=1, max_length=4000)
-    size: Literal['default', '1024x1024', '1536x1024', '1024x1536'] = 'default'
+    size: ImageSize = 'default'
 
     @field_validator('name', 'prompt')
     @classmethod
@@ -104,6 +105,10 @@ def create_job(engine, directory, config_id, model_name, prompt, size, request_i
 def create_jobs(engine, directory, config_id, model_name, prompt, size, request_id, reference, count, template_request=None, product_request=None, source_job_id=None, image_set=None):
     if not 1 <= count <= 8:
         raise HTTPException(422, "每次请选择 1 至 8 张图片。")
+    try:
+        size = normalize_size(size)
+    except ValueError as error:
+        raise HTTPException(422, str(error)) from None
     model_name, prompt = model_name.strip(), prompt.strip()
     if not prompt and not template_request and not image_set:
         raise HTTPException(422, "请填写图片要求。")
@@ -306,7 +311,7 @@ def build_image_router(engine, directory: Path):
             if any(value is not None and (not isinstance(value, dict) or not value) for value in (template_request, product_request)):
                 raise ValueError()
         except (ValueError, ValidationError):
-            raise HTTPException(422, '请检查套图清单：名称、每张用途和要求必填，每套 1–8 张，单张要求最多 4000 字符。') from None
+            raise HTTPException(422, '请检查套图清单：每套 1–8 张，名称、用途和要求必填，单张要求最多 4000 字符；尺寸为 default 或正整数宽x高，总像素不超过 2000 万。') from None
         content = reference.file.read(MAX_IMAGE + 1) if reference else None
         return create_jobs(engine, directory, str(config_id), model_name, prompt, 'default', str(request_id), content, len(image_set['shots']), template_request, product_request, image_set=image_set)
 
@@ -374,13 +379,13 @@ def build_image_router(engine, directory: Path):
             return view(row).model_copy(update={'case_id': session.scalar(select(CreativeCase.id).where(CreativeCase.job_id == row.id))})
 
     @router.post("", response_model=JobView, status_code=202)
-    def submit(config_id: Annotated[UUID, Form()], request_id: Annotated[UUID, Form()], prompt: Annotated[str, Form(min_length=1, max_length=8000)], model_name: Annotated[str, Form(max_length=200)] = "", size: Annotated[Literal["default", "1024x1024", "1536x1024", "1024x1536"], Form()] = "default", reference: Annotated[UploadFile | None, File()] = None):
+    def submit(config_id: Annotated[UUID, Form()], request_id: Annotated[UUID, Form()], prompt: Annotated[str, Form(min_length=1, max_length=8000)], model_name: Annotated[str, Form(max_length=200)] = "", size: Annotated[ImageSize, Form()] = "default", reference: Annotated[UploadFile | None, File()] = None):
         require_database()
         content = reference.file.read(MAX_IMAGE + 1) if reference else None
         return create_job(engine, directory, str(config_id), model_name, prompt, size, str(request_id), content)
 
     @router.post("/batch", response_model=list[JobView], status_code=202)
-    def submit_batch(config_id: Annotated[UUID, Form()], request_id: Annotated[UUID, Form()], prompt: Annotated[str, Form(max_length=8000)] = "", count: Annotated[int, Form(ge=1, le=8)] = 4, size: Annotated[Literal["default", "1024x1024", "1536x1024", "1024x1536"], Form()] = "default", reference: Annotated[UploadFile | None, File()] = None, template: Annotated[str, Form(max_length=240000)] = "", product: Annotated[str, Form(max_length=2000)] = "", source_job_id: Annotated[UUID | None, Form()] = None, model_name: Annotated[str, Form(max_length=200)] = ""):
+    def submit_batch(config_id: Annotated[UUID, Form()], request_id: Annotated[UUID, Form()], prompt: Annotated[str, Form(max_length=8000)] = "", count: Annotated[int, Form(ge=1, le=8)] = 4, size: Annotated[ImageSize, Form()] = "default", reference: Annotated[UploadFile | None, File()] = None, template: Annotated[str, Form(max_length=240000)] = "", product: Annotated[str, Form(max_length=2000)] = "", source_job_id: Annotated[UUID | None, Form()] = None, model_name: Annotated[str, Form(max_length=200)] = ""):
         require_database()
         content = reference.file.read(MAX_IMAGE + 1) if reference else None
         # The requested model must belong to the saved provider configuration.

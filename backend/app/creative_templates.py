@@ -2,7 +2,6 @@
 import json
 import re
 from datetime import datetime, timezone
-from typing import Literal
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, HTTPException
@@ -11,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 from app.database import CreativeTemplate, CreativeCase, ImageJob
 from app.skills import resolve_skill
+from app.image_sizes import ImageSize
 
 VARIABLE = re.compile(r"\{\{\s*([^{}\n]{1,40}?)\s*\}\}")
 
@@ -23,7 +23,7 @@ class TemplateInput(BaseModel):
     skill_id: UUID | None = None
     skill_revision: int = Field(default=0, ge=0)
     notes: str = Field(default="", max_length=2000)
-    size: Literal["default", "1024x1024", "1536x1024", "1024x1536"] = "default"
+    size: ImageSize = "default"
     count: int = Field(default=4, ge=1, le=8)
     revision: int = Field(default=0, ge=0)
 

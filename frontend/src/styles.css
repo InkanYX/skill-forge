@@ -89,6 +89,10 @@ h3 { font-size: 17px; font-weight: 600; margin: 19px 0 10px; }
 .form-field input:disabled { background: #f6f8fc; color: #64748b; }
 .form-field input::placeholder { color: #8090a6; }
 .form-field small { display: block; margin-top: 9px; color: #6f8097; font-size: 13px; line-height: 1.8; }
+.custom-image-size { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 10px; align-items: end; margin-top: 12px; }
+.custom-image-size > span { padding-bottom: 13px; color: #6f8097; }
+.custom-image-size label { font-size: 13px; }
+.image-size-picker .size-error { color: #a23e36; }
 .form-field .saved-key { color: #28714d; }
 .button-secondary, .button-primary { border-radius: 7px; padding: 11px 16px; font-size: 14px; }
 .button-secondary { border: 1px solid #cdd8e8; background: white; color: #3e577c; }
