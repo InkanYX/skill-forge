@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException
 from sqlalchemy import select, func, case
 from sqlalchemy.orm import Session
 from app.database import ImageJob, Product, CreativeTemplate, CreativeSkill, CreativeCase, ModelConfiguration
+from app.model_configs import configured_models
 
 
 def job_summary(row):
@@ -37,6 +38,7 @@ def build_workspace_router(engine):
             def count(model, *conditions):
                 return session.scalar(select(func.count()).select_from(model).where(*conditions))
             resources = {'products': count(Product), 'templates': count(CreativeTemplate), 'skills': count(CreativeSkill), 'cases': count(CreativeCase), 'model_configs': count(ModelConfiguration), 'available_models': count(ModelConfiguration, func.trim(ModelConfiguration.model_name) != '', ModelConfiguration.encrypted_key != '')}
+            resources['available_models'] = sum(len(configured_models(row)) for row in session.scalars(select(ModelConfiguration).where(ModelConfiguration.encrypted_key != '')))
             today = {
                 'date': local.date().isoformat(), 'timezone': 'Asia/Shanghai',
                 'submitted': count(ImageJob, ImageJob.created_at >= start, ImageJob.created_at < end),

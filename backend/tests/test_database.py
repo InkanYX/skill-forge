@@ -1,4 +1,5 @@
 import os
+import json
 import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
@@ -102,6 +103,34 @@ def test_alembic_upgrade_is_repeatable(tmp_path):
     engine.dispose()
 
 
+def test_multi_model_database_config_and_legacy_migration_keep_credentials(tmp_path):
+    from alembic import command
+    from alembic.config import Config
+    from sqlalchemy import text
+    from app.database import BACKEND_DIR
+    url = f"sqlite:///{(tmp_path / 'legacy-model.db').as_posix()}"
+    settings = Config(str(BACKEND_DIR / 'alembic.ini'))
+    settings.attributes['database_url'] = url
+    command.upgrade(settings, '0008_artwork_favorites')
+    engine = make_engine(url)
+    with engine.begin() as connection:
+        connection.execute(text("INSERT INTO model_configurations (id,name,base_url,model_name,encrypted_key,updated_at) VALUES ('legacy','legacy','https://api.example.com/v1','old-image','cipher-preserved','2026-01-01')"))
+    migrate(url)
+    with Session(engine) as session:
+        legacy = session.get(ModelConfiguration, 'legacy')
+        assert json.loads(legacy.model_names) == ['old-image'] and legacy.encrypted_key == 'cipher-preserved'
+    store = DatabaseConfigStore(tmp_path / 'data', engine)
+    # This fixture uses an opaque legacy ciphertext; remove only that synthetic
+    # row before creating a separate correctly encrypted configuration.
+    with engine.begin() as connection:
+        connection.execute(text("DELETE FROM model_configurations WHERE id = 'legacy'"))
+    item = store.save(ConfigInput(**{**VALUES, 'model_names': ['test-model', 'second-model']}))
+    updated = store.save(ConfigInput(**{**VALUES, 'api_key': None, 'model_name': 'second-model', 'model_names': ['test-model', 'second-model']}), item.id)
+    assert updated.model_names == ['test-model', 'second-model'] and updated.model_name == 'second-model'
+    assert DatabaseConfigStore(tmp_path / 'data', engine).resolve_key(item.id, ConfigInput(**{**VALUES, 'api_key': None})) == KEY
+    engine.dispose()
+
+
 @pytest.mark.skipif(os.environ.get("SKILL_FORGE_TEST_POSTGRES") != "1", reason="需要显式启用本机 PostgreSQL 集成测试")
 def test_real_postgres_roundtrip_is_rolled_back(tmp_path):
     from sqlalchemy.engine import make_url
@@ -114,6 +143,13 @@ def test_real_postgres_roundtrip_is_rolled_back(tmp_path):
         with engine.connect() as connection:
             transaction = connection.begin()
             try:
+                # Isolate configuration/encryption tests from saved user keys.
+                # Both this schema and its rows disappear on rollback.
+                from uuid import uuid4
+                schema = 'test_configs_' + uuid4().hex
+                connection.exec_driver_sql(f'CREATE SCHEMA "{schema}"')
+                connection.exec_driver_sql(f'SET LOCAL search_path TO "{schema}"')
+                Base.metadata.create_all(connection)
                 store = DatabaseConfigStore(tmp_path, connection)
                 item = store.save(ConfigInput(**VALUES))
                 identifier = item.id

@@ -1,7 +1,7 @@
 import TaskCancel from './TaskCancel';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { creativeRequest, type CreativeTemplate } from './creativeApi';
-import { listConfigs, type ModelConfig } from './modelConfigApi';
+import { listModelOptions as listConfigs, type ModelOption as ModelConfig } from './modelConfigApi';
 import ExportDownload from './ExportDownload';
 import { productValues, type Product, type ProductAsset } from './productApi';
 
@@ -69,9 +69,9 @@ export default function ImageSetStudio() {
   function reviewPlan(event: FormEvent) { event.preventDefault(); setError(''); setReview(true); }
   function unlock() { if (window.confirm('请先在作品库核对。修改清单后再次提交可能创建新任务，是否继续？')) { setAmbiguous(false); setRequestId(''); setReview(false); setError(''); } }
   async function generate() {
-    if (busy) return;
+    if (busy || !model) return;
     const id = requestId || crypto.randomUUID(); setRequestId(id); setBusy(true); setError('');
-    const body = new FormData(); body.set('config_id', configId); body.set('request_id', id); body.set('prompt', common);
+    const body = new FormData(); body.set('config_id', model.config_id); body.set('model_name', model.model_name); body.set('request_id', id); body.set('prompt', common);
     body.set('plan', JSON.stringify({ name, shots: shots.map(({ name, prompt, size }) => ({ name, prompt, size })) }));
     if (product) body.set('product', JSON.stringify({ id: product.id, revision: product.revision, asset_id: assetId || null }));
     if (template) body.set('template', JSON.stringify({ id: template.id, revision: template.revision, variables: values }));

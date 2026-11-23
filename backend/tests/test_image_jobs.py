@@ -1,4 +1,5 @@
 import base64
+import json
 import io
 import time
 from unittest.mock import patch
@@ -203,7 +204,7 @@ def test_rejected_download_address_preserves_uncertain_outcome():
 def test_batch_uses_saved_model_and_retries_reuse_all_jobs(setup):
     engine, directory, config = setup
     with TestClient(create_app(directory, db_url=str(engine.url))) as client:
-        fields = {"config_id": config.id, "request_id": str(uuid4()), "prompt": "庭院场景", "count": "4", "model_name": "ignored-override"}
+        fields = {"config_id": config.id, "request_id": str(uuid4()), "prompt": "庭院场景", "count": "4"}
         def submit():
             return client.post("/api/image-jobs/batch", data=fields, files={"reference": ("photo.png", png(), "image/png")})
         first = submit()
@@ -228,6 +229,49 @@ def test_batch_uses_saved_model_and_retries_reuse_all_jobs(setup):
         assert len(jobs) == 4
         assert sum(job['status'] == 'succeeded' for job in jobs) == 3
         assert sum(job['status'] == 'failed' for job in jobs) == 1
+
+
+@pytest.mark.parametrize('kind', ['batch', 'sets', 'edit'])
+def test_all_creation_flows_use_selected_saved_model_and_keep_queued_snapshot(setup, kind):
+    engine, directory, config = setup
+    source = None
+    if kind == 'edit':
+        source = enqueue(setup)
+        assert process_one(engine, directory, lambda *args: png())
+    with TestClient(create_app(directory, db_url=str(engine.url))) as client:
+        config_data = {'name': config.name, 'base_url': config.base_url, 'api_key': '', 'model_name': 'image-test', 'model_names': ['image-test', 'image:edit/v2']}
+        assert client.put(f'/api/model-configs/{config.id}', json=config_data).status_code == 200
+        fields = {'config_id': config.id, 'request_id': str(uuid4()), 'prompt': 'scene', 'count': '1', 'model_name': 'not-saved'}
+        if kind == 'sets':
+            fields['plan'] = json.dumps({'name': 'set', 'shots': [{'name': 'scene', 'prompt': 'scene'}]})
+        if source:
+            fields['source_job_id'] = source.id
+        path = '/api/image-jobs/sets' if kind == 'sets' else '/api/image-jobs/batch'
+        def submit():
+            return client.post(path, files={key: (None, value) for key, value in fields.items()})
+        rejected = submit()
+        assert rejected.status_code == 422 and KEY not in rejected.text
+        fields['model_name'] = 'image:edit/v2'
+        response = submit()
+        assert response.status_code == 202
+        item = response.json()[0]
+        assert item['model_name'] == 'image:edit/v2' and item['config_id'] == config.id
+        assert submit().json()[0]['id'] == item['id']
+        fields['model_name'] = 'image-test'
+        assert submit().status_code == 409
+        # A provider-config change does not alter an accepted job or its retry.
+        config_data['model_names'] = ['image-test']
+        assert client.put(f'/api/model-configs/{config.id}', json=config_data).status_code == 200
+        fields['model_name'] = 'image:edit/v2'
+        assert submit().json()[0]['id'] == item['id']
+        seen = []
+        def provider(*args):
+            seen.append(args[2])
+            return png()
+        assert process_one(engine, directory, provider)
+        assert seen == ['image:edit/v2']
+        fields['request_id'] = str(uuid4())
+        assert submit().status_code == 422
 
 
 @pytest.mark.parametrize('count', ['0', '9', 'abc'])

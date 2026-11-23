@@ -1,7 +1,7 @@
 import TaskCancel from './TaskCancel';
 import { useEffect, useState, type FormEvent } from 'react';
 import { creativeRequest } from './creativeApi';
-import { listConfigs, type ModelConfig } from './modelConfigApi';
+import { listModelOptions as listConfigs, type ModelOption as ModelConfig } from './modelConfigApi';
 import RevisionTrail from './RevisionTrail';
 
 interface RevisionJob {
@@ -24,7 +24,7 @@ export default function ImageRevision() {
       if (!active) return;
       if (item.status !== 'succeeded' || !item.image_url) { setSourceError('这张作品尚未完成，请在完成后继续修改。'); return; }
       setSource(item); setConfigs(connections); setSize(['default','1024x1024','1536x1024','1024x1536'].includes(item.size) ? item.size : 'default');
-      setConfigId(connections.find(c => c.id === item.config_id && c.model_name.trim())?.id || connections.find(c => c.model_name.trim())?.id || '');
+      setConfigId(connections.find(c => c.config_id === item.config_id && c.model_name === item.model_name)?.id || connections.find(c => c.config_id === item.config_id)?.id || connections.find(c => c.model_name.trim())?.id || '');
     }).catch(err => { if (active) setSourceError(err instanceof Error ? err.message : '无法读取来源作品。'); }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [sourceId, attempt]);
@@ -42,10 +42,10 @@ export default function ImageRevision() {
     void poll(); return () => { active = false; window.clearTimeout(timer); };
   }, [ids]);
   async function submit(event: FormEvent) {
-    event.preventDefault(); if (!source || busy) return;
+    event.preventDefault(); if (!source || !model || busy) return;
     const id = requestId || crypto.randomUUID(); setRequestId(id); setBusy(true); setError('');
     const body = new FormData();
-    for (const [key, value] of Object.entries({ config_id: configId, request_id: id, source_job_id: source.id, prompt, count: String(count), size })) body.set(key, value);
+    for (const [key, value] of Object.entries({ config_id: model.config_id, model_name: model.model_name, request_id: id, source_job_id: source.id, prompt, count: String(count), size })) body.set(key, value);
     try {
       const response = await fetch('/api/image-jobs/batch', { method: 'POST', body, signal: AbortSignal.timeout(30000) }); const value = await response.json();
       if (!response.ok) throw new Error(typeof value.detail === 'string' ? value.detail : '修改任务提交失败。');

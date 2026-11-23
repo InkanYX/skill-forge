@@ -19,6 +19,7 @@ from app.database import ImageJob, ModelConfiguration, DatabaseConfigStore, Crea
 from app.image_provider import MAX_IMAGE, GenerationError, generate_image, normalize_image
 from app.creative_templates import render_template
 from app.products import resolve_product
+from app.model_configs import configured_models
 
 
 def now() -> str:
@@ -180,6 +181,8 @@ def create_jobs(engine, directory, config_id, model_name, prompt, size, request_
         model_name = model_name or config.model_name
         if not model_name:
             raise HTTPException(422, "请指定支持生图的模型名称。")
+        if model_name not in configured_models(config):
+            raise HTTPException(422, '所选模型未保存在此接口配置中，请刷新模型选项后重试。')
         # Validate decryptability now, but store only the encrypted snapshot.
         store = DatabaseConfigStore(directory, engine)
         try:
@@ -294,7 +297,7 @@ def build_image_router(engine, directory: Path):
             return [view(row) for row in session.scalars(select(ImageJob).order_by(ImageJob.created_at.desc()).limit(30))]
 
     @router.post('/sets', response_model=list[JobView], status_code=202)
-    def submit_set(config_id: Annotated[UUID, Form()], request_id: Annotated[UUID, Form()], plan: Annotated[str, Form(max_length=80000)], prompt: Annotated[str, Form(max_length=8000)] = '', template: Annotated[str, Form(max_length=240000)] = '', product: Annotated[str, Form(max_length=2000)] = '', reference: Annotated[UploadFile | None, File()] = None):
+    def submit_set(config_id: Annotated[UUID, Form()], request_id: Annotated[UUID, Form()], plan: Annotated[str, Form(max_length=80000)], prompt: Annotated[str, Form(max_length=8000)] = '', template: Annotated[str, Form(max_length=240000)] = '', product: Annotated[str, Form(max_length=2000)] = '', reference: Annotated[UploadFile | None, File()] = None, model_name: Annotated[str, Form(max_length=200)] = ''):
         require_database()
         try:
             image_set = ImageSetInput.model_validate_json(plan).model_dump()
@@ -305,7 +308,7 @@ def build_image_router(engine, directory: Path):
         except (ValueError, ValidationError):
             raise HTTPException(422, '请检查套图清单：名称、每张用途和要求必填，每套 1–8 张，单张要求最多 4000 字符。') from None
         content = reference.file.read(MAX_IMAGE + 1) if reference else None
-        return create_jobs(engine, directory, str(config_id), '', prompt, 'default', str(request_id), content, len(image_set['shots']), template_request, product_request, image_set=image_set)
+        return create_jobs(engine, directory, str(config_id), model_name, prompt, 'default', str(request_id), content, len(image_set['shots']), template_request, product_request, image_set=image_set)
 
     @router.get('/sets/{set_id}')
     def get_set(set_id: UUID):
@@ -377,10 +380,10 @@ def build_image_router(engine, directory: Path):
         return create_job(engine, directory, str(config_id), model_name, prompt, size, str(request_id), content)
 
     @router.post("/batch", response_model=list[JobView], status_code=202)
-    def submit_batch(config_id: Annotated[UUID, Form()], request_id: Annotated[UUID, Form()], prompt: Annotated[str, Form(max_length=8000)] = "", count: Annotated[int, Form(ge=1, le=8)] = 4, size: Annotated[Literal["default", "1024x1024", "1536x1024", "1024x1536"], Form()] = "default", reference: Annotated[UploadFile | None, File()] = None, template: Annotated[str, Form(max_length=240000)] = "", product: Annotated[str, Form(max_length=2000)] = "", source_job_id: Annotated[UUID | None, Form()] = None):
+    def submit_batch(config_id: Annotated[UUID, Form()], request_id: Annotated[UUID, Form()], prompt: Annotated[str, Form(max_length=8000)] = "", count: Annotated[int, Form(ge=1, le=8)] = 4, size: Annotated[Literal["default", "1024x1024", "1536x1024", "1024x1536"], Form()] = "default", reference: Annotated[UploadFile | None, File()] = None, template: Annotated[str, Form(max_length=240000)] = "", product: Annotated[str, Form(max_length=2000)] = "", source_job_id: Annotated[UUID | None, Form()] = None, model_name: Annotated[str, Form(max_length=200)] = ""):
         require_database()
         content = reference.file.read(MAX_IMAGE + 1) if reference else None
-        # Resolve the model exclusively from its saved configuration.
+        # The requested model must belong to the saved provider configuration.
         try:
             template_request = json.loads(template) if template else None
             if template and (not isinstance(template_request, dict) or not template_request):
@@ -390,7 +393,7 @@ def build_image_router(engine, directory: Path):
                 raise ValueError()
         except ValueError:
             raise HTTPException(422, "模板参数格式无效。") from None
-        return create_jobs(engine, directory, str(config_id), "", prompt, size, str(request_id), content, count, template_request, product_request, str(source_job_id) if source_job_id else None)
+        return create_jobs(engine, directory, str(config_id), model_name, prompt, size, str(request_id), content, count, template_request, product_request, str(source_job_id) if source_job_id else None)
 
     @router.get("/{job_id}", response_model=JobView)
     def get_job(job_id: UUID):

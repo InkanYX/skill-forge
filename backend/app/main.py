@@ -13,7 +13,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from sqlalchemy.exc import SQLAlchemyError
 from app.database import DatabaseConfigStore, database_url, data_directory, make_engine, storage_status
 
-from app.model_configs import FileConfigStore, build_router, probe_models
+from app.model_configs import FileConfigStore, build_router, probe_models, probe_connection
 from app.image_jobs import build_image_router
 from app.creative_templates import build_creative_router
 from app.products import build_product_router
@@ -31,7 +31,7 @@ class HealthResponse(BaseModel):
     timestamp: datetime
 
 
-def create_app(data_dir: Path | None = None, probe=probe_models, db_url: str | None = None) -> FastAPI:
+def create_app(data_dir: Path | None = None, probe=probe_models, db_url: str | None = None, connection_probe=probe_connection) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app):
         yield
@@ -80,7 +80,7 @@ def create_app(data_dir: Path | None = None, probe=probe_models, db_url: str | N
     url = db_url or (database_url() if data_dir is None else None)
     engine = make_engine(url) if url else None
     store = DatabaseConfigStore(directory, engine) if engine else FileConfigStore(directory)
-    application.include_router(build_router(store, probe))
+    application.include_router(build_router(store, probe, connection_probe))
     application.include_router(build_image_router(engine, directory))
     application.include_router(build_export_router(engine, directory))
     application.include_router(build_creative_router(engine))

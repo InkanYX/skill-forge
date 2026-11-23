@@ -3,6 +3,7 @@ export interface ModelConfig {
   name: string;
   base_url: string;
   model_name: string;
+  model_names: string[];
   has_api_key: boolean;
   updated_at: string;
 }
@@ -12,11 +13,18 @@ export interface ConfigDraft {
   base_url: string;
   api_key: string;
   model_name: string;
+  model_names: string[];
 }
 
-export interface ProbeResult {
+// id identifies a dropdown option; config_id remains the provider's API ID.
+export interface ModelOption extends ModelConfig { config_id: string }
+
+export interface ConnectionResult {
   status: 'ok' | 'error' | 'unsupported';
   message: string;
+}
+
+export interface ProbeResult extends ConnectionResult {
   models: string[];
 }
 
@@ -41,5 +49,10 @@ async function request<T>(path: string, method = 'GET', body?: unknown): Promise
 }
 
 export const listConfigs = () => request<ModelConfig[]>('');
+export const listModelOptions = async (): Promise<ModelOption[]> => (await listConfigs()).flatMap(config => {
+  const names = [...new Set([config.model_name, ...(config.model_names || [])].filter(Boolean))];
+  return names.map(model => ({ ...config, config_id: config.id, id: JSON.stringify([config.id, model]), model_name: model }));
+});
 export const saveConfig = (draft: ConfigDraft, id?: string) => request<ModelConfig>(id ? `/${encodeURIComponent(id)}` : '', id ? 'PUT' : 'POST', draft);
-export const testConfig = (draft: ConfigDraft, id?: string) => request<ProbeResult>('/test', 'POST', { ...draft, config_id: id || null });
+export const testConfig = (draft: ConfigDraft, id?: string) => request<ConnectionResult>('/test', 'POST', { ...draft, config_id: id || null });
+export const readModels = (draft: ConfigDraft, id?: string) => request<ProbeResult>('/models', 'POST', { ...draft, config_id: id || null });

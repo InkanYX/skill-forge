@@ -1,6 +1,7 @@
 """Database models and a repository matching the existing configuration API."""
 
 import os
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
@@ -11,7 +12,7 @@ from sqlalchemy import String, Text, Float, Boolean, create_engine, select, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, Session
 
-from app.model_configs import ConfigInput, ConfigView, FileConfigStore
+from app.model_configs import ConfigInput, ConfigView, FileConfigStore, configured_models
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 
@@ -39,6 +40,7 @@ class ModelConfiguration(Base):
     name: Mapped[str] = mapped_column(String(80))
     base_url: Mapped[str] = mapped_column(String(2048))
     model_name: Mapped[str] = mapped_column(String(200))
+    model_names: Mapped[str] = mapped_column(Text, default='[]', server_default='[]')
     encrypted_key: Mapped[str] = mapped_column(Text)
     updated_at: Mapped[str] = mapped_column(String(40))
 
@@ -159,6 +161,7 @@ class DatabaseConfigStore(FileConfigStore):
                 row.name = data.name
                 row.base_url = data.base_url
                 row.model_name = data.model_name
+                row.model_names = json.dumps(data.model_names, ensure_ascii=False)
                 row.encrypted_key = cipher.encrypt(key.encode()).decode()
                 row.updated_at = datetime.now(timezone.utc).isoformat()
                 result = self.view(row.as_dict())
@@ -177,6 +180,7 @@ def import_file_configs(directory: Path, engine: Engine) -> int:
     imported = 0
     with Session(engine) as session, session.begin():
         for values in rows:
+            values = {**values, 'model_names': json.dumps(configured_models(values), ensure_ascii=False)}
             row = session.get(ModelConfiguration, values["id"])
             if row is None:
                 session.add(ModelConfiguration(**{column.name: values[column.name] for column in ModelConfiguration.__table__.columns}))

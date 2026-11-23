@@ -1,6 +1,6 @@
 import TaskCancel from './TaskCancel';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { listConfigs, type ModelConfig } from './modelConfigApi';
+import { listModelOptions as listConfigs, type ModelOption as ModelConfig } from './modelConfigApi';
 import { creativeRequest, type CreativeTemplate, type TemplateSnapshot } from './creativeApi';
 import ExperienceEditor from './ExperienceEditor';
 import { productValues, type Product, type ProductAsset, type ProductSnapshot } from './productApi';
@@ -133,10 +133,11 @@ export default function ImageStudio() {
 
   async function submit(event: FormEvent) {
     event.preventDefault();
+    if (!selectedConfig || busy) return;
     const id = requestId || crypto.randomUUID();
     setRequestId(id); setBusy(true); setError('');
     const form = new FormData();
-    form.set('config_id', configId); form.set('request_id', id); form.set('count', String(count));
+    form.set('config_id', selectedConfig.config_id); form.set('model_name', selectedConfig.model_name); form.set('request_id', id); form.set('count', String(count));
     form.set('prompt', prompt); form.set('size', size);
     if (template) form.set('template', JSON.stringify({ id: template.id, revision: template.revision, variables: values }));
     if (product) form.set('product', JSON.stringify({ id: product.id, revision: product.revision, asset_id: assetId || null }));
