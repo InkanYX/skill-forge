@@ -51,6 +51,8 @@ class JobView(BaseModel):
     set_name: str = ''
     shot_name: str = ''
     shot_index: int | None = None
+    task_id: str = ''
+    task_index: int = 0
 
 
 class ShotInput(BaseModel):
@@ -91,7 +93,7 @@ class LibraryPage(BaseModel):
 
 def view(row: ImageJob) -> JobView:
     fields = {name: getattr(row, name) for name in ("id", "config_id", "parent_job_id", "edit_instruction", "set_id", "set_name", "shot_name", "shot_index", "config_name", "model_name", "prompt", "size", "mode", "status", "message", "created_at", "updated_at")}
-    return JobView(**fields, is_favorite=row.is_favorite, product_snapshot=json.loads(row.product_snapshot or '{}'), template_snapshot=json.loads(row.template_snapshot or '{}'), image_url=f"/api/image-jobs/{row.id}/image" if row.status == "succeeded" else None, reference_url=f"/api/image-jobs/{row.id}/reference" if row.mode == "edit" else None)
+    return JobView(**fields, task_id=row.task_id or row.request_id, task_index=row.task_index, is_favorite=row.is_favorite, product_snapshot=json.loads(row.product_snapshot or '{}'), template_snapshot=json.loads(row.template_snapshot or '{}'), image_url=f"/api/image-jobs/{row.id}/image" if row.status == "succeeded" else None, reference_url=f"/api/image-jobs/{row.id}/reference" if row.mode == "edit" else None)
 
 
 def artifact(directory: Path, identifier: str, name: str) -> Path:
@@ -197,9 +199,10 @@ def create_jobs(engine, directory, config_id, model_name, prompt, size, request_
         except Exception:
             raise HTTPException(503, "无法解密密钥，请恢复加密文件或重新保存配置。") from None
         rows = []
-        for item_request_id, plan in zip(request_ids, plans):
+        for index, (item_request_id, plan) in enumerate(zip(request_ids, plans)):
             identifier = str(uuid4())
             row = ImageJob(id=identifier, request_id=item_request_id, fingerprint=fingerprint, config_id=config_id, config_name=config.name, base_url=config.base_url, encrypted_key=config.encrypted_key, model_name=model_name, prompt=plan['prompt'], size=plan['size'], mode="edit" if reference else "generate", status="queued", message="等待后台 Worker 执行", created_at=now(), updated_at=now())
+            row.task_id, row.task_index = request_id, index
             if reference:
                 path = artifact(directory, identifier, "reference.png")
                 path.parent.mkdir(parents=True, exist_ok=True)
@@ -235,6 +238,7 @@ def process_one(engine, directory: Path, provider=generate_image) -> bool:
         values = {column.name: getattr(row, column.name) for column in ImageJob.__table__.columns}
     identifier = values["id"]
     state, message = "unknown", "执行中断，请核对服务商记录；未自动重试。"
+    diagnostic = {}
     try:
         store = DatabaseConfigStore(directory, engine)
         try:
@@ -251,13 +255,14 @@ def process_one(engine, directory: Path, provider=generate_image) -> bool:
         state, message = "succeeded", "图片已生成并保存到本机"
     except GenerationError as error:
         state, message = ("unknown" if error.uncertain else "failed"), error.message
+        diagnostic = error.diagnostic
     except HTTPException:
         state, message = "failed", "无法连接服务商公开地址，未自动重试。"
     except Exception:
         # Provider bodies, keys, URLs, and arbitrary exception text are not exposed.
         pass
     with Session(engine) as session, session.begin():
-        session.execute(update(ImageJob).where(ImageJob.id == identifier, ImageJob.status == "running").values(status=state, message=message, updated_at=now(), lease_until=None, encrypted_key=""))
+        session.execute(update(ImageJob).where(ImageJob.id == identifier, ImageJob.status == "running").values(status=state, message=message, provider_diagnostic=json.dumps(diagnostic, ensure_ascii=False), updated_at=now(), lease_until=None, encrypted_key=""))
     return True
 
 
@@ -290,6 +295,8 @@ def cancel_set(engine, identifier: str):
 
 def build_image_router(engine, directory: Path):
     router = APIRouter(prefix="/api/image-jobs", tags=["image-jobs"])
+    from app.image_tasks import build_task_router
+    router.include_router(build_task_router(engine, view))
 
     def require_database():
         if engine is None:
@@ -385,7 +392,7 @@ def build_image_router(engine, directory: Path):
         return create_job(engine, directory, str(config_id), model_name, prompt, size, str(request_id), content)
 
     @router.post("/batch", response_model=list[JobView], status_code=202)
-    def submit_batch(config_id: Annotated[UUID, Form()], request_id: Annotated[UUID, Form()], prompt: Annotated[str, Form(max_length=8000)] = "", count: Annotated[int, Form(ge=1, le=8)] = 4, size: Annotated[ImageSize, Form()] = "default", reference: Annotated[UploadFile | None, File()] = None, template: Annotated[str, Form(max_length=240000)] = "", product: Annotated[str, Form(max_length=2000)] = "", source_job_id: Annotated[UUID | None, Form()] = None, model_name: Annotated[str, Form(max_length=200)] = ""):
+    def submit_batch(config_id: Annotated[UUID, Form()], request_id: Annotated[UUID, Form()], prompt: Annotated[str, Form(max_length=8000)] = "", count: Annotated[int, Form(ge=1, le=8)] = 1, size: Annotated[ImageSize, Form()] = "default", reference: Annotated[UploadFile | None, File()] = None, template: Annotated[str, Form(max_length=240000)] = "", product: Annotated[str, Form(max_length=2000)] = "", source_job_id: Annotated[UUID | None, Form()] = None, model_name: Annotated[str, Form(max_length=200)] = ""):
         require_database()
         content = reference.file.read(MAX_IMAGE + 1) if reference else None
         # The requested model must belong to the saved provider configuration.
@@ -408,6 +415,16 @@ def build_image_router(engine, directory: Path):
             if row is None:
                 raise HTTPException(404, "任务不存在。")
             return view(row).model_copy(update={'case_id': session.scalar(select(CreativeCase.id).where(CreativeCase.job_id == row.id))})
+
+    @router.get('/{job_id}/diagnostics')
+    def get_diagnostics(job_id: UUID):
+        require_database()
+        with Session(engine) as session:
+            row = session.get(ImageJob, str(job_id))
+            if row is None:
+                raise HTTPException(404, '生成记录不存在。')
+            diagnostic = json.loads(row.provider_diagnostic or '{}')
+            return {'job_id': row.id, 'status': row.status, 'model_name': row.model_name, 'summary': row.message, 'diagnostic': diagnostic or None}
 
     @router.get('/{job_id}/versions')
     def versions(job_id: UUID):

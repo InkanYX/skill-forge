@@ -1,15 +1,11 @@
+import TaskResultsPanel from './TaskResultsPanel';
 import ImageSizePicker, { formatImageSize } from './ImageSizePicker';
-import TaskCancel from './TaskCancel';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { creativeRequest, type CreativeTemplate } from './creativeApi';
 import { listModelOptions as listConfigs, type ModelOption as ModelConfig } from './modelConfigApi';
-import ExportDownload from './ExportDownload';
 import { productValues, type Product, type ProductAsset } from './productApi';
 
 interface Shot { id: string; name: string; prompt: string; size: string }
-interface SetJob { id: string; shot_name: string; shot_index: number; status: string; message: string; image_url: string | null; parent_job_id: string | null }
-interface SetResult { id: string; name: string; items: SetJob[]; has_more: boolean }
-const statusLabels: Record<string, string> = { queued: '排队中', running: '生成中', succeeded: '已完成', failed: '未完成', unknown: '结果待确认', cancelled: '已取消' };
 function defaultShots(): Shot[] {
   return [
     ['主体展示', '展示完整产品，背景干净，突出真实外形、材质和颜色。不要增加未随产品销售的配件。'],
@@ -30,7 +26,6 @@ export default function ImageSetStudio() {
   const [shots, setShots] = useState<Shot[]>(defaultShots); const [reference, setReference] = useState<File>(); const [preview, setPreview] = useState('');
   const [loading, setLoading] = useState(!setId); const [busy, setBusy] = useState(false); const [dirty, setDirty] = useState(false); const [error, setError] = useState('');
   const [review, setReview] = useState(false); const [requestId, setRequestId] = useState(''); const [ambiguous, setAmbiguous] = useState(false);
-  const [result, setResult] = useState<SetResult>(); const [attempt, setAttempt] = useState(0);
   const dialog = useRef<HTMLDialogElement>(null); const referenceInput = useRef<HTMLInputElement>(null);
   const product = products.find(item => item.id === productId); const template = templates.find(item => item.id === templateId); const model = configs.find(item => item.id === configId);
   useEffect(() => {
@@ -49,15 +44,6 @@ export default function ImageSetStudio() {
   }, [productId]);
   useEffect(() => { if (!reference) { setPreview(''); return; } const url = URL.createObjectURL(reference); setPreview(url); return () => URL.revokeObjectURL(url); }, [reference]);
   useEffect(() => { if (review) dialog.current?.showModal(); else dialog.current?.close(); }, [review]);
-  useEffect(() => {
-    if (!setId) return;
-    let active = true; let timer: number; setError('');
-    async function load() {
-      try { const value = await creativeRequest<SetResult>(`image-jobs/sets/${encodeURIComponent(setId)}`); if (active) { setResult(value); setError(''); if (value.items.some(item => ['queued','running'].includes(item.status))) timer = window.setTimeout(load, 3000); } }
-      catch (err) { if (active) setError(err instanceof Error ? err.message : '读取套图失败'); }
-    }
-    void load(); return () => { active = false; window.clearTimeout(timer); };
-  }, [setId, attempt]);
   useEffect(() => {
     const unload = (event: BeforeUnloadEvent) => { if (dirty || busy || ambiguous) event.preventDefault(); };
     const leave = (event: MouseEvent) => { const link = event.target instanceof Element ? event.target.closest('a') : null; if ((dirty || busy || ambiguous) && link?.getAttribute('href')?.startsWith('#/') && !window.confirm('清单尚未提交或提交结果未确认，确定离开吗？')) event.preventDefault(); };
@@ -83,7 +69,7 @@ export default function ImageSetStudio() {
     } catch (err) { setError(`${err instanceof Error ? err.message : '提交结果无法确认。'} 请先在生成记录核对，重发相同提交会复用原任务。`); setAmbiguous(true); }
     finally { setBusy(false); }
   }
-  if (setId) return <section><div className="section-heading"><div><p className="eyebrow">YOUR IMAGE SET</p><h2>{result?.name || '套图制作记录'}</h2></div><a className="button-primary" href="#/sets">新建一套图片</a></div><p className="settings-intro">每张图片独立生成。点击详情可查看制作记录、记录经验或继续修改；本页刷新后仍可查看这套结果。</p>{error && <p className="feedback feedback-error" role="alert">{error}</p>}<div className="artwork-summary"><span>{result ? `${result.items.filter(item => item.status === 'succeeded').length} / ${result.items.length} 项已完成（含修改版） · ${result.items.filter(item => item.status === "cancelled").length} 项已取消` : error ? '未能读取制作记录' : '正在读取制作记录…'}</span><button className="button-secondary" onClick={() => setAttempt(value => value + 1)}>刷新进度</button></div><TaskCancel setId={setId} queuedCount={result?.items.filter(item => item.status === "queued").length || 0} onChanged={() => setAttempt(value => value + 1)} /><ExportDownload setId={setId} count={result?.items.filter(item => item.status === "succeeded").length || 0} /><div className="case-grid">{result?.items.map(item => <article className="case-card" key={item.id}><h3>{item.shot_index + 1}. {item.shot_name}{item.parent_job_id ? ' · 修改版' : ''}</h3><span className={`job-status job-${item.status}`}>{statusLabels[item.status]}</span>{item.image_url ? <a href={item.image_url} target="_blank" rel="noreferrer"><img src={item.image_url} alt={item.shot_name} loading="lazy" /></a> : <div className="result-placeholder"><p>{item.message}</p></div>}<p>{item.message}</p><TaskCancel key={item.id} jobId={item.id} status={item.status} onChanged={reply => { if (reply.status === "cancelled") setResult(previous => previous ? { ...previous, items: previous.items.map(job => job.id === item.id ? { ...job, status: "cancelled", message: reply.message || "已取消排队。" } : job) } : previous); setAttempt(value => value + 1); }} />{item.status === 'unknown' && <p>请核对服务商记录，此任务不会自动重试。</p>}<div className="result-actions">{item.image_url && <a className="button-primary" href={`${item.image_url}?download=true`}>下载 PNG</a>}<a className="button-secondary" href={`#/library?job=${item.id}`}>查看详情</a>{item.image_url && <a className="button-secondary" href={`#/edit?source=${item.id}`}>继续修改</a>}</div></article>)}</div>{result?.has_more && <p>此页仅展示前 200 项，更多版本请到生成记录查看。</p>}</section>;
+  if (setId) return <section><div className="section-heading"><h2>成套制作结果</h2><a className="button-primary" href="#/sets">新建一套图片</a></div><TaskResultsPanel taskId={setId} /></section>;
   return <section aria-label="成套制作内容">
     <form onSubmit={reviewPlan} onChange={() => setDirty(true)}><fieldset disabled={loading || busy || ambiguous} className="set-fieldset"><div className="set-context"><div className="form-field"><label htmlFor="set-name">套图名称</label><input id="set-name" required maxLength={100} value={name} onChange={e => setName(e.target.value)} placeholder="例如：灰色凉棚 · Listing 图片" /></div><div className="form-field"><label htmlFor="set-model">生图模型</label><select id="set-model" required value={configId} onChange={e => setConfigId(e.target.value)}><option value="">请选择已配置模型</option>{configs.map(item => <option key={item.id} value={item.id} disabled={!item.model_name.trim()}>{item.name} · {item.model_name || '未设置模型'}</option>)}</select><small>没有可用模型？<a href="#/settings">前往配置</a></small></div>
     <div className="form-field"><label htmlFor="set-product">产品资料</label><select id="set-product" value={productId} onChange={e => { const item = products.find(p => p.id === e.target.value); setProductId(e.target.value); setAssetId(''); setValues(previous => ({ ...previous, ...productValues(item) })); }}><option value="">临时制作，不关联产品</option>{products.map(item => <option key={item.id} value={item.id}>{item.sku} · {item.name}</option>)}</select></div>

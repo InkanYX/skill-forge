@@ -75,6 +75,9 @@ class ImageJob(Base):
     shot_name: Mapped[str] = mapped_column(String(80), default="")
     shot_index: Mapped[int | None] = mapped_column(nullable=True)
     is_favorite: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text('false'))
+    provider_diagnostic: Mapped[str] = mapped_column(Text, default='{}', server_default='{}')
+    task_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    task_index: Mapped[int] = mapped_column(default=0, server_default='0')
 
 
 class Product(Base):

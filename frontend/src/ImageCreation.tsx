@@ -40,7 +40,7 @@ export default function ImageCreation({ route }: { route: string }) {
     <div className="section-heading"><div><p className="eyebrow">CREATE YOUR NEXT IMAGES</p><h2 id="image-studio-heading">图片创作</h2></div><span>一次制作 1–8 张</span></div>
     <div className="creation-modes" role="tablist" aria-label="图片创作方式">{modes.map((item, index) => <button key={item.id} type="button" role="tab" id={`creation-tab-${item.id}`} aria-controls={`creation-panel-${item.id}`} aria-selected={mode === item.id} tabIndex={mode === item.id ? 0 : -1} className={mode === item.id ? 'creation-mode-active' : ''} onClick={() => selectMode(item.id)} onKeyDown={event => navigateTabs(event, index)}>{item.label}</button>)}</div>
     {modes.map(item => <div key={item.id} role="tabpanel" id={`creation-panel-${item.id}`} aria-labelledby={`creation-tab-${item.id}`} hidden={mode !== item.id}>
-      {visited[item.id] && <><p className="settings-intro">{item.description}</p>{item.id === 'free' ? <ImageStudio /> : <ImageSetStudio />}</>}
+      {visited[item.id] && <><p className="settings-intro">{item.description}</p>{item.id === 'free' ? <ImageStudio active={mode === 'free'} /> : <ImageSetStudio />}</>}
     </div>)}
   </section>;
 }

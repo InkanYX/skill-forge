@@ -12,15 +12,18 @@ from fastapi import HTTPException
 from PIL import Image, ImageOps, UnidentifiedImageError
 
 from app.model_configs import public_address
+from app.provider_diagnostics import provider_diagnostic, diagnostic_context
 
 MAX_IMAGE = 20 * 1024 * 1024
 MAX_PIXELS = 20_000_000
 
 
 class GenerationError(Exception):
-    def __init__(self, message: str, uncertain: bool = False):
+    def __init__(self, message: str, uncertain: bool = False, diagnostic: dict | None = None):
+        super().__init__(message)
         self.message = message
         self.uncertain = uncertain
+        self.diagnostic = diagnostic or {}
 
 
 def normalize_image(content: bytes) -> bytes:
@@ -65,22 +68,27 @@ def read_bounded(response, limit: int, deadline: float) -> bytes:
 
 
 def generate_image(base_url: str, api_key: str, model: str, prompt: str, size: str, reference: bytes | None) -> bytes:
+    started = time.monotonic()
     endpoint = base_url + ("/images/edits" if reference else "/images/generations")
-    target, headers, extensions = pinned_url(endpoint)
-    headers["Authorization"] = f"Bearer {api_key}"
+    phase, path, response_status = ('edit' if reference else 'generate'), urlsplit(endpoint).path, None
     parameters = {"model": model, "prompt": prompt, "n": 1}
     if size != "default":
         parameters["size"] = size
     request_args = {"data": {key: str(value) for key, value in parameters.items()}, "files": {"image": ("reference.png", reference, "image/png")}} if reference else {"json": parameters}
     try:
+        target, headers, extensions = pinned_url(endpoint)
+        headers["Authorization"] = f"Bearer {api_key}"
         deadline = time.monotonic() + 300
         with httpx.Client(timeout=httpx.Timeout(300, connect=8), follow_redirects=False, trust_env=False) as client:
             with client.stream("POST", target, headers=headers, extensions=extensions, **request_args) as response:
-                if response.status_code in (400, 401, 403, 404, 405, 422, 429):
-                    messages = {400: "模型、参数或参考图不受支持。", 401: "密钥认证失败。", 403: "接口或模型权限不足。", 404: "服务商未提供对应的 Images 生图/编辑接口。", 405: "服务商不支持此请求方式。", 422: "服务商不支持当前参数。", 429: "服务商限流，请稍后手动提交。"}
-                    raise GenerationError(messages[response.status_code])
+                response_status = response.status_code
                 if response.status_code != 200:
-                    raise GenerationError(f"服务商返回 HTTP {response.status_code}，请核对服务商记录；未自动重试。", True)
+                    diagnostic = provider_diagnostic(response, urlsplit(endpoint).path, 'edit' if reference else 'generate', (api_key, prompt), int((time.monotonic() - started) * 1000))
+                if response.status_code in (400, 401, 403, 404, 405, 422, 429):
+                    messages = {400: "模型、参数或参考图不受支持。", 401: "密钥认证失败。", 403: "接口或模型权限不足。", 404: "服务商返回 HTTP 404：接口路径或模型路由未找到，请查看调用日志核对。", 405: "服务商不支持此请求方式。", 422: "服务商不支持当前参数。", 429: "服务商限流，请稍后手动提交。"}
+                    raise GenerationError(messages[response.status_code], diagnostic=diagnostic)
+                if response.status_code != 200:
+                    raise GenerationError(f"服务商返回 HTTP {response.status_code}，请核对服务商记录；未自动重试。", True, diagnostic)
                 payload = json.loads(read_bounded(response, 40 * 1024 * 1024, deadline))
             rows = payload.get("data") if isinstance(payload, dict) else None
             if not isinstance(rows, list) or not rows or not isinstance(rows[0], dict):
@@ -90,10 +98,13 @@ def generate_image(base_url: str, api_key: str, model: str, prompt: str, size: s
                 content = base64.b64decode(first["b64_json"], validate=True)
             elif isinstance(first.get("url"), str):
                 # Never forward the provider credential to an image CDN.
+                phase, path, response_status = 'download', '[图片下载地址已隐藏]', None
                 download, download_headers, download_extensions = pinned_url(first["url"])
                 with client.stream("GET", download, headers=download_headers, extensions=download_extensions, timeout=60) as response:
+                    response_status = response.status_code
                     if response.status_code != 200:
-                        raise GenerationError("服务商已返回图片地址，但下载失败；请核对记录，勿直接重复生成。", True)
+                        diagnostic = provider_diagnostic(response, '[图片下载地址已隐藏]', 'download', (api_key, prompt), int((time.monotonic() - started) * 1000))
+                        raise GenerationError("服务商已返回图片地址，但下载失败；请核对记录，勿直接重复生成。", True, diagnostic)
                     content = read_bounded(response, MAX_IMAGE, time.monotonic() + 60)
             else:
                 raise GenerationError("服务商未返回有效图片内容，请核对服务商记录。", True)
@@ -101,9 +112,15 @@ def generate_image(base_url: str, api_key: str, model: str, prompt: str, size: s
             return normalize_image(content)
         except GenerationError:
             raise GenerationError("服务商返回了无效或过大的图片；请核对服务商记录。", True) from None
-    except GenerationError:
+    except GenerationError as error:
+        if not error.diagnostic:
+            error.diagnostic = diagnostic_context(path, phase, (api_key, prompt), int((time.monotonic() - started) * 1000), response_status, 'GenerationError', error.message)
         raise
     except HTTPException:
-        raise GenerationError("服务商已接受请求，但图片下载地址不可用；请核对服务商记录，未自动重试。", True) from None
-    except (httpx.HTTPError, ValueError, binascii.Error):
-        raise GenerationError("连接中断、超时或返回格式异常，结果无法确认；请核对服务商记录，未自动重试。", True) from None
+        message = '服务商已接受请求，但图片下载地址不可用；请核对服务商记录，未自动重试。' if phase == 'download' else '服务商地址验证失败，未发送生图请求。'
+        diagnostic = diagnostic_context(path, phase, (api_key, prompt), int((time.monotonic() - started) * 1000), response_status, 'AddressValidationError', message)
+        raise GenerationError(message, phase == 'download', diagnostic) from None
+    except (httpx.HTTPError, ValueError, binascii.Error) as error:
+        message = '连接中断、超时或返回格式异常，结果无法确认；请核对服务商记录，未自动重试。'
+        diagnostic = diagnostic_context(path, phase, (api_key, prompt), int((time.monotonic() - started) * 1000), response_status, type(error).__name__, message)
+        raise GenerationError(message, True, diagnostic) from None

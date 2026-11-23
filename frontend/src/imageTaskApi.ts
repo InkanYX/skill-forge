@@ -1,0 +1,38 @@
+import type { ProductSnapshot } from './productApi';
+import type { TemplateSnapshot } from './creativeApi';
+
+export interface ProviderDiagnostic {
+  method: string; path: string; http_status: number | null; response_body?: string;
+  provider_message: string; error_type: string; request_id: string;
+  recorded_at?: string; elapsed_ms?: number;
+}
+export interface ImageRecord {
+  id: string; task_id: string; task_index: number; config_name: string; model_name: string;
+  status: string; message: string; prompt: string; size: string; mode: string;
+  created_at: string; updated_at: string; image_url: string | null; reference_url: string | null;
+  product_snapshot: ProductSnapshot; template_snapshot: TemplateSnapshot;
+  parent_job_id: string | null; edit_instruction: string; case_id: string | null; is_favorite: boolean;
+  set_id: string | null; set_name: string; shot_name: string; diagnostic: ProviderDiagnostic | null;
+}
+export interface ImageTask {
+  id: string; title: string; kind: string; status: string; model_name: string; config_name: string;
+  created_at: string; updated_at: string; product_snapshot: ProductSnapshot; template_snapshot: TemplateSnapshot;
+  counts: Record<string, number>; completed_job_ids: string[];
+}
+export interface ImageTaskDetail extends ImageTask { items: ImageRecord[] }
+export interface ImageTaskPage { items: ImageTask[]; total: number; page: number; page_size: number }
+export const taskLabels: Record<string, string> = { all: '全部状态', queued: '排队中', running: '生成中', succeeded: '已完成', partial: '部分完成', failed: '生成失败', unknown: '结果待确认', cancelled: '已取消' };
+export const kindLabels: Record<string, string> = { free: '自由创作', set: '成套制作', edit: '图片修改' };
+export const taskPending = (task: ImageTask) => ['queued', 'running'].includes(task.status);
+export function formatTaskTime(value: string) {
+  return new Date(value).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+export function taskCounts(task: ImageTask) {
+  return ['succeeded', 'failed', 'unknown', 'running', 'queued', 'cancelled']
+    .filter(status => task.counts[status] > 0).map(status => `${taskLabels[status]} ${task.counts[status]}`).join(' · ');
+}
+export async function readTaskResponse<T>(response: Response): Promise<T> {
+  const value = await response.json().catch(() => null);
+  if (!response.ok) throw new Error(typeof value?.detail === 'string' ? value.detail : `请求失败（HTTP ${response.status}）`);
+  return value;
+}
