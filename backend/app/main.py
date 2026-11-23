@@ -4,6 +4,11 @@ from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal
+import hashlib
+import secrets
+import re
+from app.image_configurations import ImageConfigStore, build_image_config_router
+from app.standard_image_worker import StandardWorker
 
 from fastapi import APIRouter, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -31,10 +36,14 @@ class HealthResponse(BaseModel):
     timestamp: datetime
 
 
-def create_app(data_dir: Path | None = None, probe=probe_models, db_url: str | None = None, connection_probe=probe_connection) -> FastAPI:
+def create_app(data_dir: Path | None = None, probe=probe_models, db_url: str | None = None, connection_probe=probe_connection, enable_standard: bool | None = None, start_image_worker: bool = True) -> FastAPI:
+    standard_enabled = data_dir is None if enable_standard is None else enable_standard
     @asynccontextmanager
     async def lifespan(app):
+        worker = StandardWorker(image_store) if standard_enabled and engine and start_image_worker else None
+        if worker: worker.start()
         yield
+        if worker: worker.stop()
         if engine:
             engine.dispose()
 
@@ -48,20 +57,27 @@ def create_app(data_dir: Path | None = None, probe=probe_models, db_url: str | N
 
     @application.middleware("http")
     async def local_origin_guard(request: Request, call_next):
-        if request.url.path.startswith(("/api/model-configs", "/api/image-jobs", "/api/templates", "/api/cases", "/api/products", "/api/skills", "/api/workspace")):
+        token = request.cookies.get('sf_image_session', '')
+        new_token = not re.fullmatch(r'[A-Za-z0-9_-]{43}', token)
+        if new_token: token = secrets.token_urlsafe(32)
+        request.state.image_owner = hashlib.sha256(token.encode()).hexdigest()
+        if request.url.path.startswith(("/api/image-configs", "/api/model-configs", "/api/image-jobs", "/api/templates", "/api/cases", "/api/products", "/api/skills", "/api/workspace")):
             origin = request.headers.get("origin")
             allowed = {f"http://{host}:{port}" for host in ("localhost", "127.0.0.1") for port in (5173, 8000)}
             if origin and origin not in allowed:
                 return JSONResponse(status_code=403, content={"detail": "不允许此网页来源访问模型配置。"})
             content_type = request.headers.get("content-type", "").split(";")[0]
             length = request.headers.get("content-length", "")
+            image_verification = request.url.path.startswith('/api/image-configs/verify/')
             asset_upload = request.url.path.startswith('/api/products/') and request.url.path.endswith('/assets')
-            if (request.url.path.startswith("/api/image-jobs") or asset_upload) and request.method == "POST" and (content_type != "multipart/form-data" or not length.isdecimal() or int(length) > 21 * 1024 * 1024):
+            if (request.url.path.startswith("/api/image-jobs") or asset_upload or image_verification) and request.method == "POST" and (content_type != "multipart/form-data" or not length.isdecimal() or int(length) > 21 * 1024 * 1024):
                 return JSONResponse(status_code=413, content={"detail": "请使用不超过 20 MB 的参考图片提交。"})
-            if not asset_upload and request.url.path.startswith(("/api/model-configs", "/api/templates", "/api/cases", "/api/products", "/api/skills")) and request.method in ("POST", "PUT") and (content_type != "application/json" or not length.isdecimal() or int(length) > 256000):
+            if not asset_upload and not image_verification and request.url.path.startswith(("/api/image-configs", "/api/model-configs", "/api/templates", "/api/cases", "/api/products", "/api/skills")) and request.method in ("POST", "PUT") and (content_type != "application/json" or not length.isdecimal() or int(length) > 256000):
                 return JSONResponse(status_code=415, content={"detail": "请使用 JSON 请求。"})
         response = await call_next(request)
-        if request.url.path.startswith(("/api/model-configs", "/api/image-jobs", "/api/templates", "/api/cases", "/api/products", "/api/skills", "/api/workspace")):
+        if new_token and request.url.path.startswith('/api/image-configs'):
+            response.set_cookie('sf_image_session', token, httponly=True, samesite='strict', max_age=31536000)
+        if request.url.path.startswith(("/api/image-configs", "/api/model-configs", "/api/image-jobs", "/api/templates", "/api/cases", "/api/products", "/api/skills", "/api/workspace")):
             response.headers["Cache-Control"] = "no-store"
         return response
 
@@ -81,7 +97,10 @@ def create_app(data_dir: Path | None = None, probe=probe_models, db_url: str | N
     engine = make_engine(url) if url else None
     store = DatabaseConfigStore(directory, engine) if engine else FileConfigStore(directory)
     application.include_router(build_router(store, probe, connection_probe))
-    application.include_router(build_image_router(engine, directory))
+    image_store = ImageConfigStore(engine, directory)
+    application.state.image_configs = image_store
+    application.include_router(build_image_config_router(image_store))
+    application.include_router(build_image_router(engine, directory, image_store if standard_enabled else None))
     application.include_router(build_export_router(engine, directory))
     application.include_router(build_creative_router(engine))
     application.include_router(build_skill_router(engine))

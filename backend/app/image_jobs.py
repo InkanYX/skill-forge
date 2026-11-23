@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Annotated, Literal
 from uuid import UUID, uuid4, uuid5
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile, Query
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile, Query, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, ValidationError, field_validator
 from sqlalchemy import select, update, func, or_, cast, JSON
@@ -53,6 +53,9 @@ class JobView(BaseModel):
     shot_index: int | None = None
     task_id: str = ''
     task_index: int = 0
+    execution_profile: dict = {}
+    execution_result: dict = {}
+    preview_url: str | None = None
 
 
 class ShotInput(BaseModel):
@@ -93,7 +96,7 @@ class LibraryPage(BaseModel):
 
 def view(row: ImageJob) -> JobView:
     fields = {name: getattr(row, name) for name in ("id", "config_id", "parent_job_id", "edit_instruction", "set_id", "set_name", "shot_name", "shot_index", "config_name", "model_name", "prompt", "size", "mode", "status", "message", "created_at", "updated_at")}
-    return JobView(**fields, task_id=row.task_id or row.request_id, task_index=row.task_index, is_favorite=row.is_favorite, product_snapshot=json.loads(row.product_snapshot or '{}'), template_snapshot=json.loads(row.template_snapshot or '{}'), image_url=f"/api/image-jobs/{row.id}/image" if row.status == "succeeded" else None, reference_url=f"/api/image-jobs/{row.id}/reference" if row.mode == "edit" else None)
+    return JobView(**fields, execution_profile=json.loads(row.execution_profile or '{}'), execution_result=json.loads(row.execution_result or '{}'), preview_url=f'/api/image-jobs/{row.id}/preview' if row.status == 'succeeded' and row.execution_profile != '{}' else None, task_id=row.task_id or row.request_id, task_index=row.task_index, is_favorite=row.is_favorite, product_snapshot=json.loads(row.product_snapshot or '{}'), template_snapshot=json.loads(row.template_snapshot or '{}'), image_url=f"/api/image-jobs/{row.id}/image" if row.status == "succeeded" else None, reference_url=f"/api/image-jobs/{row.id}/reference" if row.mode == "edit" else None)
 
 
 def artifact(directory: Path, identifier: str, name: str) -> Path:
@@ -104,7 +107,7 @@ def create_job(engine, directory, config_id, model_name, prompt, size, request_i
     return create_jobs(engine, directory, config_id, model_name, prompt, size, request_id, reference, 1)[0]
 
 
-def create_jobs(engine, directory, config_id, model_name, prompt, size, request_id, reference, count, template_request=None, product_request=None, source_job_id=None, image_set=None):
+def create_jobs(engine, directory, config_id, model_name, prompt, size, request_id, reference, count, template_request=None, product_request=None, source_job_id=None, image_set=None, standard_config=None):
     if not 1 <= count <= 8:
         raise HTTPException(422, "每次请选择 1 至 8 张图片。")
     try:
@@ -182,27 +185,41 @@ def create_jobs(engine, directory, config_id, model_name, prompt, size, request_
             plans = [{'prompt': f"{prompt}\n\n本张用途：{shot['name']}\n本张制作要求：\n{shot['prompt']}", 'size': shot['size'], 'shot_name': shot['name'], 'shot_index': index} for index, shot in enumerate(image_set['shots'])]
             if any(len(plan['prompt']) > 32000 for plan in plans):
                 raise HTTPException(422, '部分图片合并后的要求过长，请精简公共要求或模板。')
-        config = session.get(ModelConfiguration, config_id)
-        if config is None:
-            raise HTTPException(404, "请先保存模型配置。")
-        model_name = model_name or config.model_name
-        if not model_name:
-            raise HTTPException(422, "请指定支持生图的模型名称。")
-        if model_name not in configured_models(config):
-            raise HTTPException(422, '所选模型未保存在此接口配置中，请刷新模型选项后重试。')
-        # Validate decryptability now, but store only the encrypted snapshot.
-        store = DatabaseConfigStore(directory, engine)
-        try:
-            store._cipher().decrypt(config.encrypted_key.encode())
-        except HTTPException:
-            raise
-        except Exception:
-            raise HTTPException(503, "无法解密密钥，请恢复加密文件或重新保存配置。") from None
+        if standard_config:
+            from app.image_configurations import MODEL
+            if model_name and model_name != MODEL: raise HTTPException(422, '图片模型固定为 ' + MODEL)
+            model_name = MODEL
+            from types import SimpleNamespace
+            config = SimpleNamespace(**{key: standard_config[key] for key in ('name','base_url')}, encrypted_key='')
+            for plan in plans:
+                if plan['size'] != 'default':
+                    width, height = plan['size'].split('x')
+                    from math import gcd
+                    divisor = gcd(int(width), int(height))
+                    plan['prompt'] += f'\n\nOutput composition aspect ratio: {int(width)//divisor}:{int(height)//divisor}. Native size is auto; preserve product proportions.'
+        else:
+            config = session.get(ModelConfiguration, config_id)
+            if config is None:
+                raise HTTPException(404, "请先保存模型配置。")
+            model_name = model_name or config.model_name
+            if not model_name:
+                raise HTTPException(422, "请指定支持生图的模型名称。")
+            if model_name not in configured_models(config):
+                raise HTTPException(422, '所选模型未保存在此接口配置中，请刷新模型选项后重试。')
+            # Validate decryptability now, but store only the encrypted snapshot.
+            store = DatabaseConfigStore(directory, engine)
+            try:
+                store._cipher().decrypt(config.encrypted_key.encode())
+            except HTTPException:
+                raise
+            except Exception:
+                raise HTTPException(503, "无法解密密钥，请恢复加密文件或重新保存配置。") from None
         rows = []
         for index, (item_request_id, plan) in enumerate(zip(request_ids, plans)):
             identifier = str(uuid4())
             row = ImageJob(id=identifier, request_id=item_request_id, fingerprint=fingerprint, config_id=config_id, config_name=config.name, base_url=config.base_url, encrypted_key=config.encrypted_key, model_name=model_name, prompt=plan['prompt'], size=plan['size'], mode="edit" if reference else "generate", status="queued", message="等待后台 Worker 执行", created_at=now(), updated_at=now())
             row.task_id, row.task_index = request_id, index
+            if standard_config: row.execution_profile = json.dumps(standard_config, ensure_ascii=False)
             if reference:
                 path = artifact(directory, identifier, "reference.png")
                 path.parent.mkdir(parents=True, exist_ok=True)
@@ -230,7 +247,7 @@ def process_one(engine, directory: Path, provider=generate_image) -> bool:
     # A timed-out lease is never put back on the paid-request queue.
     with Session(engine) as session, session.begin():
         session.execute(update(ImageJob).where(ImageJob.status == "running", ImageJob.lease_until < time.time()).values(status="unknown", message="Worker 中断或执行超过时限，请核对服务商记录；未自动重试。", updated_at=now(), lease_until=None, encrypted_key=""))
-        row = session.scalar(select(ImageJob).where(ImageJob.status == "queued").order_by(ImageJob.created_at).limit(1).with_for_update(skip_locked=True))
+        row = session.scalar(select(ImageJob).where(ImageJob.status == "queued", ImageJob.execution_profile == "{}").order_by(ImageJob.created_at).limit(1).with_for_update(skip_locked=True))
         if row is None:
             return False
         row.status, row.message, row.updated_at = "running", "服务商正在生成图片，请稍候", now()
@@ -293,10 +310,14 @@ def cancel_set(engine, identifier: str):
         return {'cancelled_count': len(cancelled), 'counts': counts, 'message': f"已取消 {len(cancelled)} 项排队任务。已有图片保留，已开始执行的任务不会被中止。"}
 
 
-def build_image_router(engine, directory: Path):
+def build_image_router(engine, directory: Path, image_configs=None):
     router = APIRouter(prefix="/api/image-jobs", tags=["image-jobs"])
     from app.image_tasks import build_task_router
     router.include_router(build_task_router(engine, view))
+
+    def standard_profile(request, identifier):
+        if image_configs is None: return None
+        return image_configs.snapshot(request.state.image_owner, str(identifier))
 
     def require_database():
         if engine is None:
@@ -309,7 +330,7 @@ def build_image_router(engine, directory: Path):
             return [view(row) for row in session.scalars(select(ImageJob).order_by(ImageJob.created_at.desc()).limit(30))]
 
     @router.post('/sets', response_model=list[JobView], status_code=202)
-    def submit_set(config_id: Annotated[UUID, Form()], request_id: Annotated[UUID, Form()], plan: Annotated[str, Form(max_length=80000)], prompt: Annotated[str, Form(max_length=8000)] = '', template: Annotated[str, Form(max_length=240000)] = '', product: Annotated[str, Form(max_length=2000)] = '', reference: Annotated[UploadFile | None, File()] = None, model_name: Annotated[str, Form(max_length=200)] = ''):
+    def submit_set(request: Request, config_id: Annotated[UUID, Form()], request_id: Annotated[UUID, Form()], plan: Annotated[str, Form(max_length=80000)], prompt: Annotated[str, Form(max_length=8000)] = '', template: Annotated[str, Form(max_length=240000)] = '', product: Annotated[str, Form(max_length=2000)] = '', reference: Annotated[UploadFile | None, File()] = None, model_name: Annotated[str, Form(max_length=200)] = ''):
         require_database()
         try:
             image_set = ImageSetInput.model_validate_json(plan).model_dump()
@@ -320,7 +341,7 @@ def build_image_router(engine, directory: Path):
         except (ValueError, ValidationError):
             raise HTTPException(422, '请检查套图清单：每套 1–8 张，名称、用途和要求必填，单张要求最多 4000 字符；尺寸为 default 或正整数宽x高，总像素不超过 2000 万。') from None
         content = reference.file.read(MAX_IMAGE + 1) if reference else None
-        return create_jobs(engine, directory, str(config_id), model_name, prompt, 'default', str(request_id), content, len(image_set['shots']), template_request, product_request, image_set=image_set)
+        return create_jobs(engine, directory, str(config_id), model_name, prompt, 'default', str(request_id), content, len(image_set['shots']), template_request, product_request, image_set=image_set, standard_config=standard_profile(request, config_id))
 
     @router.get('/sets/{set_id}')
     def get_set(set_id: UUID):
@@ -386,13 +407,13 @@ def build_image_router(engine, directory: Path):
             return view(row).model_copy(update={'case_id': session.scalar(select(CreativeCase.id).where(CreativeCase.job_id == row.id))})
 
     @router.post("", response_model=JobView, status_code=202)
-    def submit(config_id: Annotated[UUID, Form()], request_id: Annotated[UUID, Form()], prompt: Annotated[str, Form(min_length=1, max_length=8000)], model_name: Annotated[str, Form(max_length=200)] = "", size: Annotated[ImageSize, Form()] = "default", reference: Annotated[UploadFile | None, File()] = None):
+    def submit(request: Request, config_id: Annotated[UUID, Form()], request_id: Annotated[UUID, Form()], prompt: Annotated[str, Form(min_length=1, max_length=8000)], model_name: Annotated[str, Form(max_length=200)] = "", size: Annotated[ImageSize, Form()] = "default", reference: Annotated[UploadFile | None, File()] = None):
         require_database()
         content = reference.file.read(MAX_IMAGE + 1) if reference else None
-        return create_job(engine, directory, str(config_id), model_name, prompt, size, str(request_id), content)
+        return create_jobs(engine, directory, str(config_id), model_name, prompt, size, str(request_id), content, 1, standard_config=standard_profile(request, config_id))[0]
 
     @router.post("/batch", response_model=list[JobView], status_code=202)
-    def submit_batch(config_id: Annotated[UUID, Form()], request_id: Annotated[UUID, Form()], prompt: Annotated[str, Form(max_length=8000)] = "", count: Annotated[int, Form(ge=1, le=8)] = 1, size: Annotated[ImageSize, Form()] = "default", reference: Annotated[UploadFile | None, File()] = None, template: Annotated[str, Form(max_length=240000)] = "", product: Annotated[str, Form(max_length=2000)] = "", source_job_id: Annotated[UUID | None, Form()] = None, model_name: Annotated[str, Form(max_length=200)] = ""):
+    def submit_batch(request: Request, config_id: Annotated[UUID, Form()], request_id: Annotated[UUID, Form()], prompt: Annotated[str, Form(max_length=8000)] = "", count: Annotated[int, Form(ge=1, le=8)] = 1, size: Annotated[ImageSize, Form()] = "default", reference: Annotated[UploadFile | None, File()] = None, template: Annotated[str, Form(max_length=240000)] = "", product: Annotated[str, Form(max_length=2000)] = "", source_job_id: Annotated[UUID | None, Form()] = None, model_name: Annotated[str, Form(max_length=200)] = ""):
         require_database()
         content = reference.file.read(MAX_IMAGE + 1) if reference else None
         # The requested model must belong to the saved provider configuration.
@@ -405,7 +426,7 @@ def build_image_router(engine, directory: Path):
                 raise ValueError()
         except ValueError:
             raise HTTPException(422, "模板参数格式无效。") from None
-        return create_jobs(engine, directory, str(config_id), model_name, prompt, size, str(request_id), content, count, template_request, product_request, str(source_job_id) if source_job_id else None)
+        return create_jobs(engine, directory, str(config_id), model_name, prompt, size, str(request_id), content, count, template_request, product_request, str(source_job_id) if source_job_id else None, standard_config=standard_profile(request, config_id))
 
     @router.get("/{job_id}", response_model=JobView)
     def get_job(job_id: UUID):
@@ -445,14 +466,26 @@ def build_image_router(engine, directory: Path):
             children = list(session.scalars(select(ImageJob).where(ImageJob.parent_job_id == current.id).order_by(ImageJob.created_at.desc(), ImageJob.id.desc()).limit(21)))
             return {'ancestors': list(reversed(ancestors)), 'current': view(current), 'children': [view(row) for row in children[:20]], 'has_more_ancestors': bool(parent_id), 'has_more_children': len(children) > 20}
 
+    @router.post('/{job_id}/review')
+    def save_review(job_id: UUID, status: Annotated[Literal['pending','passed','rework'], Form()], notes: Annotated[str, Form(max_length=4000)] = ''):
+        require_database()
+        with Session(engine) as session, session.begin():
+            row = session.get(ImageJob, str(job_id), with_for_update=True)
+            if row is None or row.status != 'succeeded' or row.execution_profile == '{}':
+                raise HTTPException(409, '只能检查已完成的标准生图结果。')
+            result = json.loads(row.execution_result or '{}')
+            result['review'] = {'status': status, 'notes': notes, 'method': 'human', 'updated_at': now()}
+            row.execution_result = json.dumps(result, ensure_ascii=False)
+            return result['review']
+
     @router.get("/{job_id}/{kind}")
-    def get_image(job_id: UUID, kind: Literal["image", "reference"], download: bool = False):
+    def get_image(job_id: UUID, kind: Literal["image", "reference", "preview"], download: bool = False):
         row = get_job(job_id)
-        if (kind == "image" and row.status != "succeeded") or (kind == "reference" and row.mode != "edit"):
+        if (kind in ("image", "preview") and row.status != "succeeded") or (kind == "reference" and row.mode != "edit"):
             raise HTTPException(404, "图片尚不可用。")
-        path = artifact(directory, str(job_id), "result.png" if kind == "image" else "reference.png")
+        path = artifact(directory, str(job_id), "preview.jpg" if kind == "preview" else "result.png" if kind == "image" else "reference.png")
         if not path.is_file():
             raise HTTPException(404, "图片文件不存在，请检查数据目录或备份。")
-        return FileResponse(path, media_type="image/png", filename=f"skill-forge-{job_id}.png" if download else None, headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
+        return FileResponse(path, media_type="image/jpeg" if kind == "preview" else "image/png", filename=f"skill-forge-{job_id}.png" if download else None, headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
 
     return router

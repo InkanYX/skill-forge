@@ -52,6 +52,7 @@ export default function ImageStudio({ active = true }: { active?: boolean }) {
   const alive = useRef(true);
   const referenceInput = useRef<HTMLInputElement>(null);
   const selectedConfig = configs.find((item) => item.id === configId);
+  const canGenerate = !!selectedConfig?.has_api_key;
 
   useEffect(() => {
     let active = true;
@@ -177,8 +178,9 @@ export default function ImageStudio({ active = true }: { active?: boolean }) {
           <div className="form-field"><label htmlFor="generation-count">生成数量</label><select id="generation-count" value={count} onChange={(event) => setCount(Number(event.target.value))}>{Array.from({ length: 8 }, (_, index) => index + 1).map((value) => <option key={value} value={value}>{value} 张</option>)}</select><small>使用同一制作要求，每张独立生成，便于比较和挑选。</small></div>
           <div className="form-field"><label htmlFor="reference-image">产品参考图 <span>可选</span></label><input ref={referenceInput} id="reference-image" type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => { const file = event.target.files?.[0]; if (file) setAssetId(''); if (file && file.size > 20 * 1024 * 1024) { setError('参考图不能超过 20 MB。'); event.target.value = ''; setReference(undefined); } else { setReference(file); setError(''); } }} /><small>单张 PNG、JPEG 或 WebP，最多 20 MB、2000 万像素。参考图将随任务发送到所选服务商。</small>{referencePreview && <div className="reference-preview"><img src={referencePreview} alt="本次产品参考图" /><button type="button" className="button-secondary" onClick={() => { setReference(undefined); if (referenceInput.current) referenceInput.current.value = ''; }}>移除参考图</button></div>}</div>
         </fieldset>
+        {selectedConfig && !canGenerate && <p className="feedback feedback-warning">请先在<a href="#/settings">个人模型配置</a>填写并保存 API Key。</p>}
         {error && <div className="feedback feedback-error" role="alert">{error}</div>}
-        <div className="form-actions">{ambiguous && <button type="button" className="button-secondary" onClick={unlockDraft}>核对后修改输入</button>}<button type="submit" className="button-primary" disabled={busy || !selectedConfig?.model_name.trim() || (!template && !prompt.trim()) || !!template?.variables.some(key => !values[key]?.trim())}>{busy ? '正在提交…' : ambiguous ? '重发相同提交' : `生成 ${count} 张图片`}</button></div>
+        <div className="form-actions">{ambiguous && <button type="button" className="button-secondary" onClick={unlockDraft}>核对后修改输入</button>}<button type="submit" className="button-primary" disabled={busy || !canGenerate || !selectedConfig?.model_name.trim() || (!template && !prompt.trim()) || !!template?.variables.some(key => !values[key]?.trim())}>{busy ? '正在提交…' : ambiguous ? '重发相同提交' : `生成 ${count} 张图片`}</button></div>
         <p className="form-footnote">本次将提交 {count} 张图片，按张调用所选服务商并消耗其额度。刷新或切换页面不会取消已提交任务。</p>
       </form>
       <div className="studio-result">

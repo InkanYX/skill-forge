@@ -90,7 +90,7 @@ export default function ModelSettings() {
       setConfigs((items) => [...items.filter((config) => config.id !== item.id), item]);
       setSelected(item.id);
       setDraft({ name: item.name, base_url: item.base_url, model_name: item.model_name, model_names: item.model_names, api_key: '' });
-      setManualModel(''); setDirty(false); setNotice(`配置已保存，${item.model_names.length} 个模型可在创作页面选择。密钥已加密存储，页面不回显。`);
+      setManualModel(''); setDirty(false); setNotice(`配置已保存，${item.model_names.length} 个文字模型已保存。密钥已加密存储，页面不回显。`);
     } catch (err) { if (mounted.current) setError(messageOf(err)); }
     finally { if (mounted.current) setBusy(null); }
   }
@@ -116,8 +116,8 @@ export default function ModelSettings() {
   }
 
   return <section className="model-settings" aria-labelledby="model-settings-heading">
-    <div className="section-heading"><div><p className="eyebrow">YOUR MODEL CONNECTIONS</p><h2 id="model-settings-heading">个人模型配置</h2></div></div>
-    <p className="settings-intro">一份服务商地址和 API Key 可以保存多个图片模型。勾选需要使用的模型并设定默认模型，制作页面直接选择即可。</p>
+    <div className="section-heading"><div><p className="eyebrow">YOUR MODEL CONNECTIONS</p><h2 id="model-settings-heading">文字模型配置</h2></div></div>
+    <p className="settings-intro">保留用于后续策划和提示词功能的文字模型配置；图片生成请使用上方的图片接口。此区域沿用原有加密密钥存储方式。</p>
     <div className="settings-layout">
       <aside className="config-list" aria-label="已保存的接口配置">
         <div className="list-title">已保存的配置 <span>{configs.length}</span></div>
@@ -128,10 +128,10 @@ export default function ModelSettings() {
       <form className="config-form" onSubmit={handleSave}>
         <fieldset disabled={busy !== null}>
           <legend>接口配置</legend>
-          <div className="form-field"><label htmlFor="config-name">配置名称</label><input id="config-name" value={draft.name} maxLength={80} required onChange={(event) => change('name', event.target.value)} placeholder="例如：我的图片服务" /></div>
+          <div className="form-field"><label htmlFor="config-name">配置名称</label><input id="config-name" value={draft.name} maxLength={80} required onChange={(event) => change('name', event.target.value)} placeholder="例如：我的文字模型服务" /></div>
           <div className="form-field"><label htmlFor="base-url">接口地址 <span>Base URL</span></label><input id="base-url" type="url" value={draft.base_url} maxLength={2048} required onChange={(event) => change('base_url', event.target.value)} placeholder="https://api.example.com/v1" aria-describedby="base-url-help" /><small id="base-url-help">填写服务商提供的公开 HTTPS 基础地址。支持 /v1 等自定义前缀，不要填写 /responses 等具体接口。</small></div>
           <div className="form-field"><label htmlFor="api-key">API Key {active?.has_api_key && <span className="saved-key">已保存</span>}</label><input id="api-key" type="password" autoComplete="new-password" spellCheck={false} maxLength={4096} value={draft.api_key} required={!active?.has_api_key} onChange={(event) => change('api_key', event.target.value)} placeholder={active?.has_api_key ? '留空保留原密钥；输入新值可替换' : '填写你的服务商密钥'} aria-describedby="api-key-help" /><small id="api-key-help">密钥仅发往本机后端与指定服务商，不写入浏览器本地存储。更改接口地址时需要重新填写密钥。</small></div>
-          <div className="form-field"><label htmlFor="model-name">添加模型 <span>可添加多个</span></label><div className="input-with-action"><input id="model-name" maxLength={200} value={manualModel} onChange={event => { setManualModel(event.target.value); setDirty(true); }} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); addManualModel(); } }} placeholder="输入服务商给出的模型 ID，再点击添加" /><button type="button" className="button-secondary" disabled={!manualModel.trim()} onClick={addManualModel}>添加</button></div><small>可以逐个手动添加，也可以读取服务商模型列表后多选。仅添加支持图片生成或编辑的模型。</small></div>
+          <div className="form-field"><label htmlFor="model-name">添加模型 <span>可添加多个</span></label><div className="input-with-action"><input id="model-name" maxLength={200} value={manualModel} onChange={event => { setManualModel(event.target.value); setDirty(true); }} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); addManualModel(); } }} placeholder="输入服务商给出的模型 ID，再点击添加" /><button type="button" className="button-secondary" disabled={!manualModel.trim()} onClick={addManualModel}>添加</button></div><small>可以逐个手动添加，也可以读取服务商模型列表后多选。此处模型不会进入图片创作的生图选项。</small></div>
           <div className="configured-models"><h3>已选模型 · {draft.model_names.length} / 50</h3>{draft.model_names.length ? <div className="model-picker">{draft.model_names.map(name => <button key={name} type="button" onClick={() => toggleModel(name)} aria-label={`移除模型 ${name}`}>{name} ×</button>)}</div> : <p className="form-footnote">尚未添加模型。</p>}</div>
           {!!draft.model_names.length && <div className="form-field"><label htmlFor="default-model">默认模型</label><select id="default-model" value={draft.model_name} onChange={event => change('model_name', event.target.value)}>{draft.model_names.map(name => <option key={name} value={name}>{name}</option>)}</select><small>创作时仍可切换到其他已选模型。</small></div>}
         </fieldset>

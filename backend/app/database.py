@@ -78,6 +78,22 @@ class ImageJob(Base):
     provider_diagnostic: Mapped[str] = mapped_column(Text, default='{}', server_default='{}')
     task_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     task_index: Mapped[int] = mapped_column(default=0, server_default='0')
+    execution_profile: Mapped[str] = mapped_column(Text, default='{}', server_default='{}')
+    execution_result: Mapped[str] = mapped_column(Text, default='{}', server_default='{}')
+
+
+class ImageConfiguration(Base):
+    __tablename__ = 'image_configurations'
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    owner: Mapped[str] = mapped_column(String(64), unique=True)
+    name: Mapped[str] = mapped_column(String(80))
+    base_url: Mapped[str] = mapped_column(String(2048))
+    revision: Mapped[str] = mapped_column(String(36))
+    generation_job_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    edit_job_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    updated_at: Mapped[str] = mapped_column(String(40))
+    text_model_name: Mapped[str] = mapped_column(String(200), default='', server_default='')
+    text_config_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
 
 
 class Product(Base):

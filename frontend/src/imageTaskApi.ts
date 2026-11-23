@@ -7,6 +7,7 @@ export interface ProviderDiagnostic {
   recorded_at?: string; elapsed_ms?: number;
 }
 export interface ImageRecord {
+  preview_url?: string | null; execution_profile?: Record<string, unknown>; execution_result?: {native_pixels?: number[]; review?: {status: string; notes?: string}};
   id: string; task_id: string; task_index: number; config_name: string; model_name: string;
   status: string; message: string; prompt: string; size: string; mode: string;
   created_at: string; updated_at: string; image_url: string | null; reference_url: string | null;

@@ -68,6 +68,7 @@ def build_archive(rows, directory: Path, include_records=True):
                 except OSError:
                     raise HTTPException(409, '部分图片文件缺失或无法读取，请在作品详情检查后重新选择。') from None
                 records.append({
+                    'execution_profile': json.loads(job.execution_profile or '{}'), 'execution_result': json.loads(job.execution_result or '{}'),
                     'file': filename, 'job_id': job.id, 'created_at': job.created_at,
                     'model_name': job.model_name, 'requested_size': job.size, 'mode': job.mode,
                     'prompt': job.prompt, 'product': product, 'template': template,

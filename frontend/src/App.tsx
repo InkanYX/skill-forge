@@ -1,5 +1,5 @@
+import ModelSettingsPage from './ModelSettingsPage';
 import { useEffect, useState } from 'react';
-import ModelSettings from './ModelSettings';
 import ImageCreation from './ImageCreation';
 import TemplateLibrary from './TemplateLibrary';
 import ProductLibrary from './ProductLibrary';
@@ -68,7 +68,7 @@ export default function App() {
         <header className="topbar"><span>工作空间 / {page === 'edit' ? '图片创作 / 继续修改' : page === 'sets' ? '图片创作 / 成套制作' : page === 'skills' ? '创作模板 / Skill 管理' : pages.find((item) => item.id === page)?.title}</span><span className="environment">本机开发环境</span></header>
         <main id="workspace">
           {page === 'studio' && <ImageCreation route={route} />}
-          {page === 'settings' && <ModelSettings />}
+          {page === 'settings' && <ModelSettingsPage />}
           {page === 'templates' && <TemplateLibrary />}
           {page === 'products' && <ProductLibrary />}
           {page === 'library' && <ArtworkLibrary key={route} />}

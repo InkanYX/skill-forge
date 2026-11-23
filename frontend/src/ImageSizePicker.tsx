@@ -1,19 +1,19 @@
 import { useEffect, useRef, useState } from 'react';
 
 const presets = [
-  ['default', '自动（不指定尺寸）'],
-  ['1024x1024', '方形 · 1024 × 1024'],
-  ['1536x1024', '横向 · 1536 × 1024'],
-  ['1024x1536', '纵向 · 1024 × 1536'],
+  ['default', '不指定画幅'],
+  ['1024x1024', '方形 · 1:1'],
+  ['1536x1024', '横向 · 3:2'],
+  ['1024x1536', '纵向 · 2:3'],
 ];
 const isPreset = (value: string) => presets.some(([size]) => size === value);
 const maxPixels = 20_000_000;
 
 export function formatImageSize(value: string) {
-  return value === 'default' ? '自动（不指定尺寸）' : `${value.replace('x', ' × ')} 像素`;
+  return value === 'default' ? '不指定画幅' : `目标画幅 ${value.replace('x', ':')}`;
 }
 
-export default function ImageSizePicker({ id, value, onChange, label = '输出尺寸' }: {
+export default function ImageSizePicker({ id, value, onChange, label = '画幅要求' }: {
   id: string; value: string; onChange: (value: string) => void; label?: string;
 }) {
   const [custom, setCustom] = useState(() => !isPreset(value));
@@ -38,17 +38,17 @@ export default function ImageSizePicker({ id, value, onChange, label = '输出�
     <select id={id} value={showCustom ? 'custom' : value} aria-describedby={`${id}-help`} onChange={event => {
       const next = event.target.value;
       setCustom(next === 'custom');
-      update(next === 'custom' ? '2000x2000' : next);
+      update(next === 'custom' ? '1x1' : next);
     }}>
       {presets.map(([size, title]) => <option key={size} value={size}>{title}</option>)}
-      <option value="custom">自定义尺寸</option>
+      <option value="custom">自定义比例</option>
     </select>
     {showCustom && <div className="custom-image-size">
-      <div><label htmlFor={`${id}-width`}>宽度（像素）</label><input ref={widthInput} id={`${id}-width`} type="number" min={1} max={maxPixels} step={1} required value={width} onChange={event => update(`${event.target.value}x${height}`)} /></div>
+      <div><label htmlFor={`${id}-width`}>宽度比例</label><input ref={widthInput} id={`${id}-width`} type="number" min={1} max={maxPixels} step={1} required value={width} onChange={event => update(`${event.target.value}x${height}`)} /></div>
       <span aria-hidden="true">×</span>
-      <div><label htmlFor={`${id}-height`}>高度（像素）</label><input id={`${id}-height`} type="number" min={1} max={maxPixels} step={1} required value={height} onChange={event => update(`${width}x${event.target.value}`)} /></div>
+      <div><label htmlFor={`${id}-height`}>高度比例</label><input id={`${id}-height`} type="number" min={1} max={maxPixels} step={1} required value={height} onChange={event => update(`${width}x${event.target.value}`)} /></div>
     </div>}
-    <small id={`${id}-help`}>{value === 'default' ? '不向接口指定尺寸，由服务商按默认规则处理；实际大小以返回图片为准。' : '请求的尺寸需要所选服务商和模型支持，不会自动缩放返回的图片。'}{showCustom && ' 宽高须为正整数，总像素不超过 2000 万。'}</small>
+    <small id={`${id}-help`}>{value === 'default' ? '接口固定使用 auto，实际像素以返回图片为准。' : '比例用于编写构图要求；接口仍使用 auto，不承诺返回指定像素。'}{showCustom && ' 宽高比例须为正整数。'}</small>
     {tooLarge && <small className="size-error" role="alert">总像素超过 2000 万，请减小宽度或高度。</small>}
   </div>;
 }
