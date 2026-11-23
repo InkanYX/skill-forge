@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import ModelSettings from './ModelSettings';
-import ImageStudio from './ImageStudio';
+import ImageCreation from './ImageCreation';
 import TemplateLibrary from './TemplateLibrary';
 import ProductLibrary from './ProductLibrary';
 import ArtworkLibrary from './ArtworkLibrary';
@@ -18,7 +18,14 @@ const pages = [
   { id: 'settings', href: '#/settings', title: '个人模型配置' },
 ] as const;
 function currentRoute() {
-  return window.location.hash.split('?')[0] === '#/cases' ? '#/library?notes=1' : window.location.hash;
+  const hash = window.location.hash;
+  const [path, query] = hash.split('?');
+  if (path === '#/cases') return '#/library?notes=1';
+  if (path === '#/sets') {
+    const params = new URLSearchParams(query || '');
+    if (!params.get('set')) { params.set('mode', 'set'); return `#/studio?${params}`; }
+  }
+  return hash;
 }
 function currentPage() {
   const hash = currentRoute().split('?')[0];
@@ -60,7 +67,7 @@ export default function App() {
       <div className="main-shell">
         <header className="topbar"><span>工作空间 / {page === 'edit' ? '图片创作 / 继续修改' : page === 'sets' ? '图片创作 / 成套制作' : page === 'skills' ? '创作模板 / Skill 管理' : pages.find((item) => item.id === page)?.title}</span><span className="environment">本机开发环境</span></header>
         <main id="workspace">
-          {page === 'studio' && <ImageStudio />}
+          {page === 'studio' && <ImageCreation route={route} />}
           {page === 'settings' && <ModelSettings />}
           {page === 'templates' && <TemplateLibrary />}
           {page === 'products' && <ProductLibrary />}

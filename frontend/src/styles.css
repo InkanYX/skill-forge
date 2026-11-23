@@ -187,6 +187,9 @@ h3 { font-size: 17px; font-weight: 600; margin: 19px 0 10px; }
 .creation-modes > * { padding: 13px 16px; border: 1px solid #cdd8e8; border-radius: 8px; background: white; }
 .creation-modes .creation-mode-active { border-color: #7196dc; color: #244e9c; background: #eaf1ff; }
 .creation-modes a:hover { background: #edf3fc; }
+.creation-modes button { font: inherit; text-align: left; color: #3e577c; cursor: pointer; }
+.creation-modes button:hover { background: #edf3fc; }
+.creation-modes button:focus-visible { outline: 2px solid #537cce; outline-offset: 3px; }
 .set-fieldset { padding: 0; margin: 0; border: 0; min-width: 0; }
 .set-context { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 24px; padding: 24px; background: white; border: 1px solid #dce4f0; border-radius: 12px; margin-bottom: 26px; }
 .set-common { grid-column: 1 / -1; }

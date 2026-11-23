@@ -162,10 +162,7 @@ export default function ImageStudio() {
     setAmbiguous(false); setRequestId(undefined); setError('');
   }
 
-  return <section className="image-studio" aria-labelledby="image-studio-heading">
-    <div className="section-heading"><div><p className="eyebrow">CREATE YOUR NEXT IMAGES</p><h2 id="image-studio-heading">图片创作</h2></div><span>一次制作 1–8 张</span></div>
-    <p className="settings-intro">选择已配置的模型、填写画面要求，一次生成多张候选图。添加产品参考图，可在原图基础上制作。</p>
-    <div className="creation-modes"><span className="creation-mode-active">自由创作 · 同一要求生成多张候选图</span><a href="#/sets">成套制作 · 为每张图片安排不同用途</a></div>
+  return <section className="image-studio" aria-label="自由创作内容">
     <div className="studio-layout">
       <form className="studio-form" onSubmit={submit}>
         <div className="form-field"><label htmlFor="generation-config">生图模型</label><div className="input-with-action"><select id="generation-config" required disabled={busy || ambiguous} value={configId} onChange={(event) => setConfigId(event.target.value)}><option value="">请选择已配置的模型</option>{configs.map((item) => <option key={item.id} value={item.id} disabled={!item.model_name.trim()}>{item.name} · {item.model_name || '未设置模型'}</option>)}</select><button type="button" className="button-secondary" disabled={loadingConfigs || busy || ambiguous} onClick={refreshConfigs}>{loadingConfigs ? '读取中' : '刷新'}</button></div>{!loadingConfigs && !configs.some((item) => item.model_name.trim()) && <small>请先到<a href="#/settings">个人模型配置</a>保存图片模型。</small>}</div>
