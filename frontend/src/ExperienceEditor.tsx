@@ -32,7 +32,7 @@ export default function ExperienceEditor({ jobId, onDirtyChange, onSavingChange,
     event.preventDefault(); setBusy(true); onSavingChange?.(true); setMessage('');
     try {
       const note = await creativeRequest<CreativeCase>('cases', { job_id: jobId, title: title.trim() || '作品经验', experience, issues });
-      setTitle(note.title); setExperience(note.experience); setSaved(true); setMessage('经验已保存，可在作品库筛选“有经验备注”查看。');
+      setTitle(note.title); setExperience(note.experience); setSaved(true); setMessage('经验已保存，可在生成记录筛选“有经验备注”查看。');
       onDirtyChange?.(false); onSaved?.(note);
     } catch (err) { setMessage(err instanceof Error ? err.message : '保存失败'); }
     finally { setBusy(false); onSavingChange?.(false); }

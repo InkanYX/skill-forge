@@ -12,7 +12,7 @@ import Workspace from './Workspace';
 const pages = [
   { id: 'workspace', href: '#/', title: '我的工作台' },
   { id: 'studio', href: '#/studio', title: '图片创作' },
-  { id: 'library', href: '#/library', title: '作品库' },
+  { id: 'library', href: '#/library', title: '生成记录' },
   { id: 'products', href: '#/products', title: '产品资料' },
   { id: 'templates', href: '#/templates', title: '创作模板' },
   { id: 'settings', href: '#/settings', title: '个人模型配置' },

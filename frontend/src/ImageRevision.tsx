@@ -20,7 +20,7 @@ export default function ImageRevision() {
   const model = configs.find(item => item.id === configId);
   useEffect(() => {
     let active = true; setLoading(true); setSourceError('');
-    if (!sourceId) { setSourceError('请先从作品库选择一张已完成图片，再点击“继续修改”。'); setLoading(false); return; }
+    if (!sourceId) { setSourceError('请先从生成记录选择一张已完成图片，再点击“继续修改”。'); setLoading(false); return; }
     Promise.all([creativeRequest<RevisionJob>(`image-jobs/${encodeURIComponent(sourceId)}`), listConfigs()]).then(([item, connections]) => {
       if (!active) return;
       if (item.status !== 'succeeded' || !item.image_url) { setSourceError('这张作品尚未完成，请在完成后继续修改。'); return; }
@@ -51,11 +51,11 @@ export default function ImageRevision() {
       const response = await fetch('/api/image-jobs/batch', { method: 'POST', body, signal: AbortSignal.timeout(30000) }); const value = await response.json();
       if (!response.ok) throw new Error(typeof value.detail === 'string' ? value.detail : '修改任务提交失败。');
       const items = value as RevisionJob[]; setJobs(items); setIds(items.map(item => item.id)); setAmbiguous(false); setRequestId('');
-    } catch (err) { setError(`${err instanceof Error ? err.message : '提交结果无法确认。'} 请先核对作品库。重发相同提交会复用原任务。`); setAmbiguous(true); }
+    } catch (err) { setError(`${err instanceof Error ? err.message : '提交结果无法确认。'} 请先核对生成记录。重发相同提交会复用原任务。`); setAmbiguous(true); }
     finally { setBusy(false); }
   }
-  function unlock() { if (window.confirm('请先核对作品库。修改输入后再次提交会创建新任务，是否继续？')) { setAmbiguous(false); setRequestId(''); setError(''); } }
-  return <section><div className="section-heading"><div><p className="eyebrow">REFINE YOUR IMAGE</p><h2>继续修改</h2></div><a className="button-secondary" href="#/library">返回作品库</a></div><p className="settings-intro">以选中的作品为参考，只填写这次想调整的内容。每次保存为新版本，原图始终保留。</p>
+  function unlock() { if (window.confirm('请先核对生成记录。修改输入后再次提交会创建新任务，是否继续？')) { setAmbiguous(false); setRequestId(''); setError(''); } }
+  return <section><div className="section-heading"><div><p className="eyebrow">REFINE YOUR IMAGE</p><h2>继续修改</h2></div><a className="button-secondary" href="#/library">返回生成记录</a></div><p className="settings-intro">以选中的作品为参考，只填写这次想调整的内容。每次保存为新版本，原图始终保留。</p>
     {loading && <p role="status">正在读取来源作品…</p>}{sourceError && <p className="feedback feedback-error" role="alert">{sourceError} {sourceId && <button className="button-secondary" onClick={() => setAttempt(value => value + 1)}>重新读取</button>}</p>}
     {!loading && !sourceError && source && <><div className="revision-layout"><section className="revision-source"><h3>来源作品</h3><a href={source.image_url!} target="_blank" rel="noreferrer"><img src={source.image_url!} alt="本次修改的来源作品" /></a><p>{source.product_snapshot.sku ? `${source.product_snapshot.sku} · ${source.product_snapshot.name}` : '未关联产品资料'}</p><small>原模型：{source.model_name}。沿用来源作品保存的产品资料和模板记录。</small><details><summary>查看来源制作要求</summary><p className="case-prompt">{source.prompt}</p></details></section>
     <form className="revision-form" onSubmit={submit}><fieldset disabled={busy || ambiguous}><div className="form-field"><label htmlFor="revision-model">生图模型</label><select id="revision-model" required value={configId} onChange={e => setConfigId(e.target.value)}><option value="">请选择已配置模型</option>{configs.map(item => <option key={item.id} value={item.id} disabled={!item.model_name.trim()}>{item.name} · {item.model_name || '未指定模型'}</option>)}</select><small>使用当前保存的配置调用图片编辑接口。<a href="#/settings">管理模型配置</a></small></div>
