@@ -4,7 +4,7 @@ import time
 from threading import Thread, Event
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
-from app.database import ImageJob, ImageConfiguration
+from app.database import ImageJob, ImageConfiguration, UserAccount
 from app.image_jobs import artifact, now
 from app.image_provider import GenerationError
 from app.standard_image_executor import execute_cli
@@ -22,6 +22,11 @@ def process_standard_one(store, executor=execute_cli):
             if config is None or config.revision != profile['revision']:
                 row.status, row.message, row.updated_at = 'cancelled', '图片配置已改变，此排队项未调用服务商，请重新提交。', now()
                 continue
+            if getattr(store,'auth_enabled',False):
+                account = session.get(UserAccount,row.owner_id) if row.owner_id else None
+                if not account or not account.is_active:
+                    row.status, row.message, row.updated_at = 'cancelled', '所属账号不可用，未调用服务商。', now()
+                    continue
             key = store.key(row.config_id, profile['revision'])
             if key:
                 selected = row; break

@@ -7,6 +7,7 @@ export interface ProviderDiagnostic {
   recorded_at?: string; elapsed_ms?: number;
 }
 export interface ImageRecord {
+  owner_id?: string | null; can_edit?: boolean;
   preview_url?: string | null; execution_profile?: Record<string, unknown>; execution_result?: {native_pixels?: number[]; review?: {status: string; notes?: string}};
   id: string; task_id: string; task_index: number; config_name: string; model_name: string;
   status: string; message: string; prompt: string; size: string; mode: string;
@@ -16,6 +17,7 @@ export interface ImageRecord {
   set_id: string | null; set_name: string; shot_name: string; diagnostic: ProviderDiagnostic | null;
 }
 export interface ImageTask {
+  owner_id?: string | null; can_manage?: boolean;
   id: string; title: string; kind: string; status: string; model_name: string; config_name: string;
   created_at: string; updated_at: string; product_snapshot: ProductSnapshot; template_snapshot: TemplateSnapshot;
   counts: Record<string, number>; completed_job_ids: string[];

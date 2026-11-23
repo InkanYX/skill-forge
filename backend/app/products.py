@@ -1,3 +1,4 @@
+from app.authorization import owner_view, require_edit
 """Product facts and immutable, normalized image assets."""
 import hashlib
 import json
@@ -35,7 +36,7 @@ class ProductInput(BaseModel):
 
 
 def product_view(row):
-    return {**json.loads(row.content), 'id': row.id, 'sku': row.sku, 'revision': row.revision, 'updated_at': row.updated_at}
+    return {**owner_view(row), **json.loads(row.content), 'id': row.id, 'sku': row.sku, 'revision': row.revision, 'updated_at': row.updated_at}
 
 
 def asset_path(directory: Path, product_id: str, asset_id: str, digest: str):
@@ -95,6 +96,7 @@ def build_product_router(engine, directory):
                     row = session.get(Product, str(identifier), with_for_update=True)
                     if row is None:
                         raise HTTPException(404, '产品不存在。')
+                    require_edit(row)
                     if data.revision != row.revision:
                         raise HTTPException(409, '产品已被修改，请重新载入。')
                     row.revision += 1

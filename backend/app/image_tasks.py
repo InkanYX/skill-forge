@@ -1,3 +1,4 @@
+from app.authorization import can_edit, require_edit
 """Submission-level history; image jobs remain the durable execution units."""
 import json
 from collections import Counter, defaultdict
@@ -37,6 +38,7 @@ def summarize(rows):
     kind = 'edit' if first.parent_job_id else 'set' if first.set_id else 'free'
     title = first.set_name if kind == 'set' else first.edit_instruction if kind == 'edit' else first.prompt.split('\n', 1)[0]
     return {
+        'owner_id': first.owner_id, 'can_manage': all(can_edit(row) for row in rows),
         'id': first.task_id or first.request_id, 'kind': kind, 'title': title[:100] or '图片制作',
         'status': task_status(counts), 'counts': counts,
         'created_at': min(row.created_at for row in rows), 'updated_at': max(row.updated_at for row in rows),
@@ -116,6 +118,8 @@ def build_task_router(engine, job_view):
         with Session(engine) as session, session.begin():
             if session.scalar(select(ImageJob.id).where(task_key() == str(task_id)).limit(1)) is None:
                 raise HTTPException(404, '生成任务不存在。')
+            for row in task_rows(session,str(task_id)):
+                require_edit(row)
             cancelled = list(session.scalars(update(ImageJob).where(task_key() == str(task_id), ImageJob.status == 'queued').values(status='cancelled', message='已取消排队，未调用服务商。', encrypted_key='', updated_at=datetime.now(timezone.utc).isoformat()).returning(ImageJob.id)))
             return {'cancelled_count': len(cancelled), 'message': f'已取消 {len(cancelled)} 张排队图片。'}
     return router

@@ -1,3 +1,4 @@
+import { apiFetch } from './apiFetch';
 export interface HealthResponse {
   status: 'ok';
   service: string;
@@ -12,7 +13,7 @@ export interface StorageStatus {
 }
 
 export async function fetchStorage(signal: AbortSignal): Promise<StorageStatus> {
-  const response = await fetch('/api/system/status', { signal, cache: 'no-store' });
+  const response = await apiFetch('/api/system/status', { signal, cache: 'no-store' });
   if (!response.ok) throw new Error('无法读取数据库状态');
   const data = await response.json();
   if (!['file', 'postgresql'].includes(data.storage) || !['ready', 'unavailable'].includes(data.status) || typeof data.message !== 'string') throw new Error('数据库状态格式错误');
@@ -20,7 +21,7 @@ export async function fetchStorage(signal: AbortSignal): Promise<StorageStatus> 
 }
 
 export async function fetchHealth(signal: AbortSignal): Promise<HealthResponse> {
-  const response = await fetch('/api/health', { signal, cache: 'no-store' });
+  const response = await apiFetch('/api/health', { signal, cache: 'no-store' });
   if (!response.ok) throw new Error(`健康检查失败（HTTP ${response.status}）`);
   const value: unknown = await response.json();
   if (!value || typeof value !== 'object') throw new Error('后端返回了无效数据');

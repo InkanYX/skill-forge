@@ -1,3 +1,4 @@
+from app.authorization import owner_view, require_edit
 """Versioned text instructions; importing never executes any content."""
 import json
 from datetime import datetime, timezone
@@ -28,7 +29,7 @@ class SkillInput(BaseModel):
 
 def skill_view(row):
     identifier = row.skill_id if isinstance(row, SkillRevision) else row.id
-    return {**json.loads(row.content), 'id': identifier, 'revision': row.revision, 'updated_at': row.updated_at}
+    return {**owner_view(row), **json.loads(row.content), 'id': identifier, 'revision': row.revision, 'updated_at': row.updated_at}
 
 
 def resolve_skill(session, identifier, revision):
@@ -59,6 +60,7 @@ def build_skill_router(engine):
                 row = session.get(CreativeSkill, str(identifier), with_for_update=True)
                 if row is None:
                     raise HTTPException(404, 'Skill 不存在。')
+                require_edit(row)
                 if row.revision != data.revision:
                     raise HTTPException(409, 'Skill 已更新，请重新载入后再保存。')
                 if row.content == content:

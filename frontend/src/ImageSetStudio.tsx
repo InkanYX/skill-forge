@@ -1,3 +1,4 @@
+import { apiFetch } from './apiFetch';
 import TaskResultsPanel from './TaskResultsPanel';
 import ImageSizePicker, { formatImageSize } from './ImageSizePicker';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
@@ -64,7 +65,7 @@ export default function ImageSetStudio() {
     if (template) body.set('template', JSON.stringify({ id: template.id, revision: template.revision, variables: values }));
     if (reference) body.set('reference', reference);
     try {
-      const response = await fetch('/api/image-jobs/sets', { method: 'POST', body, signal: AbortSignal.timeout(30000) }); const value = await response.json();
+      const response = await apiFetch('/api/image-jobs/sets', { method: 'POST', body, signal: AbortSignal.timeout(30000) }); const value = await response.json();
       if (!response.ok) throw new Error(typeof value.detail === 'string' ? value.detail : '清单提交失败。');
       setDirty(false); setAmbiguous(false); setReview(false); window.location.hash = `#/sets?set=${id}`;
     } catch (err) { setError(`${err instanceof Error ? err.message : '提交结果无法确认。'} 请先在生成记录核对，重发相同提交会复用原任务。`); setAmbiguous(true); }

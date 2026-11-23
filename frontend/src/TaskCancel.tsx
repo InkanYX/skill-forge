@@ -1,3 +1,4 @@
+import { apiFetch } from './apiFetch';
 import { useEffect, useRef, useState } from 'react';
 
 export interface CancelReply { id?: string; status?: string; message?: string; cancelled_count?: number }
@@ -12,7 +13,7 @@ export default function TaskCancel({ jobId, setId, status, queuedCount = 0, onCh
     const body = new FormData(); body.set('action', 'cancel');
     try {
       const path = setId ? `sets/${setId}/cancel` : `${jobId}/cancel`;
-      const response = await fetch(`/api/image-jobs/${path}`, { method: 'POST', body, signal: AbortSignal.timeout(12000) });
+      const response = await apiFetch(`/api/image-jobs/${path}`, { method: 'POST', body, signal: AbortSignal.timeout(12000) });
       const value = await response.json();
       if (!mounted.current) return;
       if (!response.ok) { onChanged?.({}); throw new Error(typeof value.detail === 'string' ? value.detail : '取消未完成，请刷新任务状态。'); }

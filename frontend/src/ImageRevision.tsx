@@ -1,3 +1,4 @@
+import { apiFetch } from './apiFetch';
 import TaskResultsPanel from './TaskResultsPanel';
 import ImageSizePicker from './ImageSizePicker';
 import { useEffect, useState, type FormEvent } from 'react';
@@ -34,7 +35,7 @@ export default function ImageRevision() {
     const body = new FormData();
     for (const [key, value] of Object.entries({ config_id: model.config_id, model_name: model.model_name, request_id: id, source_job_id: source.id, prompt, count: String(count), size })) body.set(key, value);
     try {
-      const response = await fetch('/api/image-jobs/batch', { method: 'POST', body, signal: AbortSignal.timeout(30000) }); const value = await response.json();
+      const response = await apiFetch('/api/image-jobs/batch', { method: 'POST', body, signal: AbortSignal.timeout(30000) }); const value = await response.json();
       if (!response.ok) throw new Error(typeof value.detail === 'string' ? value.detail : '修改任务提交失败。');
       const items = value as RevisionJob[]; setCurrentTaskId(items[0]?.task_id || id); setAmbiguous(false); setRequestId('');
     } catch (err) { setError(`${err instanceof Error ? err.message : '提交结果无法确认。'} 请先核对生成记录。重发相同提交会复用原任务。`); setAmbiguous(true); }

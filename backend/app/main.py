@@ -7,6 +7,9 @@ from typing import Literal
 import hashlib
 import secrets
 import re
+import os
+from app.auth import AuthService, build_auth_router, COOKIE
+from app.authorization import principal
 from app.image_configurations import ImageConfigStore, build_image_config_router
 from app.standard_image_worker import StandardWorker
 
@@ -36,7 +39,8 @@ class HealthResponse(BaseModel):
     timestamp: datetime
 
 
-def create_app(data_dir: Path | None = None, probe=probe_models, db_url: str | None = None, connection_probe=probe_connection, enable_standard: bool | None = None, start_image_worker: bool = True) -> FastAPI:
+def create_app(data_dir: Path | None = None, probe=probe_models, db_url: str | None = None, connection_probe=probe_connection, enable_standard: bool | None = None, start_image_worker: bool = True, enable_auth: bool | None = None) -> FastAPI:
+    auth_enabled = data_dir is None if enable_auth is None else enable_auth
     standard_enabled = data_dir is None if enable_standard is None else enable_standard
     @asynccontextmanager
     async def lifespan(app):
@@ -53,17 +57,24 @@ def create_app(data_dir: Path | None = None, probe=probe_models, db_url: str | N
         version=VERSION,
         lifespan=lifespan,
     )
-    application.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost", "testserver"])
+    application.add_middleware(TrustedHostMiddleware, allowed_hosts=os.environ.get("SKILL_FORGE_ALLOWED_HOSTS", "127.0.0.1,localhost,testserver").split(","))
 
     @application.middleware("http")
     async def local_origin_guard(request: Request, call_next):
+        user = auth_service.current(request.cookies.get(COOKIE)) if auth_enabled and request.url.path.startswith('/api/') else None
+        request.state.user = user
+        public = request.url.path in ('/api/health','/api/auth/me','/api/auth/login')
+        if auth_enabled and request.url.path.startswith('/api/') and not public:
+            if not user: return JSONResponse(status_code=401, content={'detail':'请先登录。'})
+            if user['must_change_password'] and request.url.path not in ('/api/auth/password','/api/auth/logout'):
+                return JSONResponse(status_code=403, content={'detail':'首次登录或密码重置后，请先修改密码。'})
         token = request.cookies.get('sf_image_session', '')
         new_token = not re.fullmatch(r'[A-Za-z0-9_-]{43}', token)
         if new_token: token = secrets.token_urlsafe(32)
-        request.state.image_owner = hashlib.sha256(token.encode()).hexdigest()
-        if request.url.path.startswith(("/api/image-configs", "/api/model-configs", "/api/image-jobs", "/api/templates", "/api/cases", "/api/products", "/api/skills", "/api/workspace")):
+        request.state.image_owner = user['id'] if user else hashlib.sha256(token.encode()).hexdigest()
+        if request.url.path.startswith(("/api/auth", "/api/admin", "/api/image-configs", "/api/model-configs", "/api/image-jobs", "/api/templates", "/api/cases", "/api/products", "/api/skills", "/api/workspace")):
             origin = request.headers.get("origin")
-            allowed = {f"http://{host}:{port}" for host in ("localhost", "127.0.0.1") for port in (5173, 8000)}
+            allowed = set(filter(None,os.environ.get("SKILL_FORGE_ALLOWED_ORIGINS", "").split(","))) | {f"http://{host}:{port}" for host in ("localhost", "127.0.0.1") for port in (5173, 8000)}
             if origin and origin not in allowed:
                 return JSONResponse(status_code=403, content={"detail": "不允许此网页来源访问模型配置。"})
             content_type = request.headers.get("content-type", "").split(";")[0]
@@ -72,12 +83,16 @@ def create_app(data_dir: Path | None = None, probe=probe_models, db_url: str | N
             asset_upload = request.url.path.startswith('/api/products/') and request.url.path.endswith('/assets')
             if (request.url.path.startswith("/api/image-jobs") or asset_upload or image_verification) and request.method == "POST" and (content_type != "multipart/form-data" or not length.isdecimal() or int(length) > 21 * 1024 * 1024):
                 return JSONResponse(status_code=413, content={"detail": "请使用不超过 20 MB 的参考图片提交。"})
-            if not asset_upload and not image_verification and request.url.path.startswith(("/api/image-configs", "/api/model-configs", "/api/templates", "/api/cases", "/api/products", "/api/skills")) and request.method in ("POST", "PUT") and (content_type != "application/json" or not length.isdecimal() or int(length) > 256000):
+            if not asset_upload and not image_verification and request.url.path.startswith(("/api/auth", "/api/admin", "/api/image-configs", "/api/model-configs", "/api/templates", "/api/cases", "/api/products", "/api/skills")) and request.method in ("POST", "PUT") and (content_type != "application/json" or not length.isdecimal() or int(length) > 256000):
                 return JSONResponse(status_code=415, content={"detail": "请使用 JSON 请求。"})
-        response = await call_next(request)
-        if new_token and request.url.path.startswith('/api/image-configs'):
+        context_token = principal.set(user if auth_enabled else None)
+        try:
+            response = await call_next(request)
+        finally:
+            principal.reset(context_token)
+        if not auth_enabled and new_token and request.url.path.startswith('/api/image-configs'):
             response.set_cookie('sf_image_session', token, httponly=True, samesite='strict', max_age=31536000)
-        if request.url.path.startswith(("/api/image-configs", "/api/model-configs", "/api/image-jobs", "/api/templates", "/api/cases", "/api/products", "/api/skills", "/api/workspace")):
+        if request.url.path.startswith(("/api/auth", "/api/admin", "/api/image-configs", "/api/model-configs", "/api/image-jobs", "/api/templates", "/api/cases", "/api/products", "/api/skills", "/api/workspace")):
             response.headers["Cache-Control"] = "no-store"
         return response
 
@@ -98,7 +113,11 @@ def create_app(data_dir: Path | None = None, probe=probe_models, db_url: str | N
     store = DatabaseConfigStore(directory, engine) if engine else FileConfigStore(directory)
     application.include_router(build_router(store, probe, connection_probe))
     image_store = ImageConfigStore(engine, directory)
+    image_store.auth_enabled = auth_enabled
     application.state.image_configs = image_store
+    auth_service = AuthService(engine,image_store)
+    application.state.auth_service = auth_service
+    application.include_router(build_auth_router(auth_service))
     application.include_router(build_image_config_router(image_store))
     application.include_router(build_image_router(engine, directory, image_store if standard_enabled else None))
     application.include_router(build_export_router(engine, directory))

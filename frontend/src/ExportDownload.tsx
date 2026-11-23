@@ -1,3 +1,4 @@
+import { apiFetch } from './apiFetch';
 import { useEffect, useId, useRef, useState } from 'react';
 
 export default function ExportDownload({ jobIds, setId, count }: { jobIds?: string[]; setId?: string; count: number }) {
@@ -15,7 +16,7 @@ export default function ExportDownload({ jobIds, setId, count }: { jobIds?: stri
     const abort = new AbortController(); controller.current = abort;
     const timeout = window.setTimeout(() => abort.abort(), 120000);
     try {
-      const response = await fetch('/api/image-jobs/exports', { method: 'POST', body, signal: abort.signal });
+      const response = await apiFetch('/api/image-jobs/exports', { method: 'POST', body, signal: abort.signal });
       if (!response.ok) { const value = await response.json().catch(() => null); throw new Error(typeof value?.detail === 'string' ? value.detail : `导出失败（HTTP ${response.status}）`); }
       if (!response.headers.get('content-type')?.includes('application/zip')) throw new Error('导出格式异常，请检查后端服务。');
       const blob = await response.blob();

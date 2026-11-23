@@ -1,3 +1,4 @@
+import { apiFetch } from './apiFetch';
 import { useEffect, useRef, useState } from 'react';
 import { startTaskPolling } from './taskPolling';
 import { formatTaskTime, readTaskResponse, type ImageTaskDetail } from './imageTaskApi';
@@ -10,7 +11,7 @@ export default function ImageVerificationResult({taskId,onFinished}:{taskId:stri
   useEffect(()=>{
     setTask(undefined);setError('');finished.current='';
     const current=startTaskPolling<ImageTaskDetail>({
-      load:async signal=>readTaskResponse(await fetch(`/api/image-jobs/tasks/${encodeURIComponent(taskId)}`,{signal,cache:'no-store'})),
+      load:async signal=>readTaskResponse(await apiFetch(`/api/image-jobs/tasks/${encodeURIComponent(taskId)}`,{signal,cache:'no-store'})),
       pending:value=>['queued','running'].includes(value.status),
       onData:value=>{setTask(value);setError('');if(!['queued','running'].includes(value.status)&&finished.current!==value.id){finished.current=value.id;onFinishedRef.current();}},
       onError:err=>setError(err instanceof Error?err.message:'结果读取失败，请重新读取。'),onLoading:setLoading,

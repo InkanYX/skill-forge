@@ -1,3 +1,5 @@
+import AuthGate, { useAuth } from './AuthGate';
+import MemberManagement from './MemberManagement';
 import ModelSettingsPage from './ModelSettingsPage';
 import { useEffect, useState } from 'react';
 import ImageCreation from './ImageCreation';
@@ -15,6 +17,7 @@ const pages = [
   { id: 'library', href: '#/library', title: '生成记录' },
   { id: 'products', href: '#/products', title: '产品资料' },
   { id: 'templates', href: '#/templates', title: '创作模板' },
+  { id: 'members', href: '#/members', title: '成员管理' },
   { id: 'settings', href: '#/settings', title: '个人模型配置' },
 ] as const;
 function currentRoute() {
@@ -29,6 +32,7 @@ function currentRoute() {
 }
 function currentPage() {
   const hash = currentRoute().split('?')[0];
+  if (hash === '#/members') return 'members';
   if (hash === '#/templates') return 'templates';
   if (hash === '#/products') return 'products';
   if (hash === '#/library') return 'library';
@@ -39,7 +43,9 @@ function currentPage() {
     : hash === '#/settings' || hash === '#model-settings-heading' ? 'settings' : 'workspace';
 }
 
-export default function App() {
+export default function App(){return <AuthGate><WorkspaceApp /></AuthGate>;}
+function WorkspaceApp() {
+  const {user,logout,changePassword}=useAuth();
   const [page, setPage] = useState(currentPage);
   const [route, setRoute] = useState(currentRoute);
   useEffect(() => {
@@ -59,14 +65,15 @@ export default function App() {
         <a className="brand" href="#/" aria-label="Skill Forge 首页">
           <span className="brand-icon">SF</span><span>Skill Forge<small>电商图片工作台</small></span>
         </a>
-        <div className="workspace-label">个人工作空间</div>
-        <nav aria-label="工作空间导航">{pages.map((item) => <a key={item.id} className={`nav-link ${(page === item.id || ((page === 'edit' || page === 'sets') && item.id === 'studio') || (page === 'skills' && item.id === 'templates')) ? 'nav-active' : ''}`} aria-current={(page === item.id || ((page === 'edit' || page === 'sets') && item.id === 'studio') || (page === 'skills' && item.id === 'templates')) ? 'page' : undefined} href={item.href}>{item.title}</a>)}</nav>
+        <div className="workspace-label">团队工作空间</div>
+        <nav aria-label="工作空间导航">{pages.filter(item=>item.id!=='members'||user.role==='admin').map((item) => <a key={item.id} className={`nav-link ${(page === item.id || ((page === 'edit' || page === 'sets') && item.id === 'studio') || (page === 'skills' && item.id === 'templates')) ? 'nav-active' : ''}`} aria-current={(page === item.id || ((page === 'edit' || page === 'sets') && item.id === 'studio') || (page === 'skills' && item.id === 'templates')) ? 'page' : undefined} href={item.href}>{item.title}</a>)}</nav>
         <div className="sidebar-note"><span className="note-label">创作与经验</span><p>从产品素材到可复用的制作经验。</p><small>产品 · 模板 · Skill · 作品</small></div>
       </aside>
 
       <div className="main-shell">
-        <header className="topbar"><span>工作空间 / {page === 'edit' ? '图片创作 / 继续修改' : page === 'sets' ? '图片创作 / 成套制作' : page === 'skills' ? '创作模板 / Skill 管理' : pages.find((item) => item.id === page)?.title}</span><span className="environment">本机开发环境</span></header>
+        <header className="topbar"><span>工作空间 / {page === 'edit' ? '图片创作 / 继续修改' : page === 'sets' ? '图片创作 / 成套制作' : page === 'skills' ? '创作模板 / Skill 管理' : pages.find((item) => item.id === page)?.title}</span><div className="account-controls"><span>{user.display_name}<small>{user.role==='admin'?'管理员':'成员'}</small></span><button type="button" onClick={changePassword}>修改密码</button><button type="button" onClick={logout}>退出</button></div></header>
         <main id="workspace">
+          {page === 'members' && <MemberManagement />}
           {page === 'studio' && <ImageCreation route={route} />}
           {page === 'settings' && <ModelSettingsPage />}
           {page === 'templates' && <TemplateLibrary />}

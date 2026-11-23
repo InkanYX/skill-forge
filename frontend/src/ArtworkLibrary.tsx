@@ -1,3 +1,4 @@
+import { apiFetch } from './apiFetch';
 import { useEffect, useState, type FormEvent } from 'react';
 import { creativeRequest, type CreativeTemplate } from './creativeApi';
 import { type Product } from './productApi';
@@ -55,7 +56,7 @@ export default function ArtworkLibrary() {
     const poller = startTaskPolling<ImageTaskPage>({
       timeout: 12000, interval: 10000,
       load: async signal => {
-        const response = await fetch(`/api/image-jobs/tasks?${params}`, { signal, cache: 'no-store' });
+        const response = await apiFetch(`/api/image-jobs/tasks?${params}`, { signal, cache: 'no-store' });
         const data = await response.json();
         if (!response.ok) throw new Error(typeof data.detail === 'string' ? data.detail : '生成记录读取失败。');
         return data;

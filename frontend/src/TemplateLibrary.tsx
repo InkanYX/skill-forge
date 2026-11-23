@@ -31,6 +31,7 @@ export default function TemplateLibrary() {
   }, [dirty]);
   useEffect(() => { let active = true; creativeRequest<CreativeTemplate[]>('templates').then(value => { if (active) setItems(value); }).catch(err => { if (active) setError(String(err.message)); }); return () => { active = false; }; }, []);
   useEffect(() => { let active = true; creativeRequest<CreativeSkill[]>('skills').then(value => { if (active) setSkills(value); }).catch(() => { if (active) setSkillError('Skill 列表读取失败，可刷新重试。'); }); return () => { active = false; }; }, []);
+  const readOnly = !!id && items.find(item=>item.id===id)?.can_edit === false;
   const variables = [...new Set([...`${draft.prompt}\n${draft.skill}\n${draft.notes}`.matchAll(/\{\{\s*([^{}\n]{1,40}?)\s*\}\}/g)].map(match => match[1].trim()))];
   function edit(value?: CreativeTemplate) {
     if (dirty && !window.confirm('当前内容尚未保存，是否放弃修改？')) return;
@@ -49,7 +50,7 @@ export default function TemplateLibrary() {
     <p className="settings-intro">这里保存“怎么画”：画面要求、Skill、注意事项和默认出图参数。生图时套用模板，再选择产品或填写具体信息；产品实拍在产品资料中维护。</p>
     <div className="creation-modes"><span className="creation-mode-active">创作模板</span><a href="#/skills">Skill 管理</a></div>
     <div className="settings-layout"><aside className="config-list"><div className="list-title">已保存模板 · {items.length}</div>{items.map(item => <button type="button" key={item.id} disabled={busy} className={`config-item ${id === item.id ? 'config-item-active' : ''}`} onClick={() => edit(item)}><strong>{item.name}</strong><small>版本 {item.revision} · {item.variables.length} 项产品信息</small></button>)}{!items.length && <p className="empty-config">还没有模板，从右侧示例开始。</p>}</aside>
-    <form className="config-form" onSubmit={save}><fieldset disabled={busy}>
+    <form className="config-form" onSubmit={save}>{readOnly && <p className="shared-readonly">团队共享模板，仅作者或管理员可修改。<button type="button" className="button-secondary" onClick={()=>{setId("");setDraft({...draft,name:draft.name+" · 副本",revision:0});setDirty(true);}}>复制为我的模板</button></p>}<fieldset disabled={busy || readOnly}>
       {!id && <div className="example-actions">{examples.map(example => <button type="button" className="button-secondary" key={example.name} onClick={() => { if (dirty && !window.confirm('用示例替换当前未保存的内容？')) return; setDraft({ ...blank(), ...example }); setDirty(true); }}>{example.name}</button>)}</div>}
       <div className="form-field"><label htmlFor="template-name">模板名称</label><input id="template-name" required maxLength={100} value={draft.name} onChange={e => change('name', e.target.value)} /></div>
       <div className="form-field"><label htmlFor="template-purpose">适用用途</label><input id="template-purpose" maxLength={1000} value={draft.purpose} onChange={e => change('purpose', e.target.value)} /></div>
@@ -59,6 +60,6 @@ export default function TemplateLibrary() {
       <div className="form-field"><label htmlFor="template-notes">注意事项</label><textarea id="template-notes" rows={3} maxLength={2000} value={draft.notes} onChange={e => change('notes', e.target.value)} /></div>
       <div className="template-defaults"><ImageSizePicker id="template-size" value={draft.size} onChange={value => change('size', value)} label="默认画幅" /><div className="form-field"><label htmlFor="template-count">默认数量</label><select id="template-count" value={draft.count} onChange={e => change('count', Number(e.target.value))}>{[1,2,3,4,5,6,7,8].map(n => <option key={n} value={n}>{n} 张</option>)}</select></div></div>
       <p className="form-footnote">自动识别的填写项：{variables.join('、') || '无'}</p>
-    </fieldset>{error && <p className="feedback feedback-error" role="alert">{error}</p>}{message && <p className="feedback feedback-success" role="status">{message}</p>}<div className="form-actions">{id && !dirty && <a className="button-secondary" href={`#/studio?template=${id}`}>使用此模板</a>}<button className="button-primary" disabled={busy}>{busy ? '保存中…' : '保存模板'}</button></div></form></div>
+    </fieldset>{error && <p className="feedback feedback-error" role="alert">{error}</p>}{message && <p className="feedback feedback-success" role="status">{message}</p>}<div className="form-actions">{id && !dirty && <a className="button-secondary" href={`#/studio?template=${id}`}>使用此模板</a>}<button className="button-primary" disabled={busy || readOnly}>{busy ? '保存中…' : '保存模板'}</button></div></form></div>
   </section>;
 }

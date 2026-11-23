@@ -1,3 +1,4 @@
+import { apiFetch } from './apiFetch';
 import ImageSizePicker from './ImageSizePicker';
 import TaskResultsPanel from './TaskResultsPanel';
 import { formatTaskTime, kindLabels, taskLabels as labels, taskCounts, taskPending, type ImageTaskPage } from './imageTaskApi';
@@ -121,7 +122,7 @@ export default function ImageStudio({ active = true }: { active?: boolean }) {
   useEffect(() => {
     if (!active || !pageVisible) { setHistoryLoading(false); return; }
     const poller = startTaskPolling<ImageTaskPage>({
-      load: async signal => readResponse(await fetch('/api/image-jobs/tasks?page_size=6', { cache: 'no-store', signal })) as Promise<ImageTaskPage>,
+      load: async signal => readResponse(await apiFetch('/api/image-jobs/tasks?page_size=6', { cache: 'no-store', signal })) as Promise<ImageTaskPage>,
       pending: data => data.items.some(taskPending),
       onData: data => { setHistory(data); setListError(''); },
       onError: err => setListError(`${errorMessage(err)} 已停止自动刷新，可点击“刷新任务”重试读取。`),
@@ -145,7 +146,7 @@ export default function ImageStudio({ active = true }: { active?: boolean }) {
     if (product) form.set('product', JSON.stringify({ id: product.id, revision: product.revision, asset_id: assetId || null }));
     if (reference) form.set('reference', reference);
     try {
-      const response = await fetch('/api/image-jobs/batch', { method: 'POST', body: form, signal: AbortSignal.timeout(30000) });
+      const response = await apiFetch('/api/image-jobs/batch', { method: 'POST', body: form, signal: AbortSignal.timeout(30000) });
       const created = await readResponse(response) as CreatedImage[];
       if (!alive.current) return;
       setCurrentTaskId(created[0]?.task_id || id); setRequestId(undefined); setAmbiguous(false);

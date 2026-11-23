@@ -12,6 +12,8 @@ from sqlalchemy import String, Text, Float, Boolean, create_engine, select, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, Session
 
+from app.authorization import principal, require_private
+
 from app.model_configs import ConfigInput, ConfigView, FileConfigStore, configured_models
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
@@ -34,7 +36,32 @@ class Base(DeclarativeBase):
     pass
 
 
-class ModelConfiguration(Base):
+class UserAccount(Base):
+    __tablename__ = 'user_accounts'
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    username: Mapped[str] = mapped_column(String(32), unique=True)
+    display_name: Mapped[str] = mapped_column(String(80))
+    password_hash: Mapped[str] = mapped_column(Text)
+    role: Mapped[str] = mapped_column(String(16), default='member')
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    must_change_password: Mapped[bool] = mapped_column(Boolean, default=True)
+    failed_attempts: Mapped[int] = mapped_column(default=0)
+    locked_until: Mapped[float] = mapped_column(Float, default=0)
+    created_at: Mapped[str] = mapped_column(String(40))
+
+
+class LoginSession(Base):
+    __tablename__ = 'login_sessions'
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(36), index=True)
+    expires_at: Mapped[float] = mapped_column(Float, index=True)
+
+
+class OwnedRecord:
+    owner_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+
+
+class ModelConfiguration(OwnedRecord, Base):
     __tablename__ = "model_configurations"
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     name: Mapped[str] = mapped_column(String(80))
@@ -48,7 +75,7 @@ class ModelConfiguration(Base):
         return {column.name: getattr(self, column.name) for column in self.__table__.columns}
 
 
-class ImageJob(Base):
+class ImageJob(OwnedRecord, Base):
     __tablename__ = "image_jobs"
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     request_id: Mapped[str] = mapped_column(String(36), unique=True)
@@ -96,7 +123,7 @@ class ImageConfiguration(Base):
     text_config_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
 
 
-class Product(Base):
+class Product(OwnedRecord, Base):
     __tablename__ = "products"
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     sku: Mapped[str] = mapped_column(String(100), unique=True)
@@ -105,7 +132,7 @@ class Product(Base):
     updated_at: Mapped[str] = mapped_column(String(40))
 
 
-class ProductAsset(Base):
+class ProductAsset(OwnedRecord, Base):
     __tablename__ = "product_assets"
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     product_id: Mapped[str] = mapped_column(String(36), index=True)
@@ -115,7 +142,7 @@ class ProductAsset(Base):
     created_at: Mapped[str] = mapped_column(String(40))
 
 
-class CreativeTemplate(Base):
+class CreativeTemplate(OwnedRecord, Base):
     __tablename__ = "creative_templates"
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     content: Mapped[str] = mapped_column(Text)
@@ -123,7 +150,7 @@ class CreativeTemplate(Base):
     updated_at: Mapped[str] = mapped_column(String(40))
 
 
-class CreativeSkill(Base):
+class CreativeSkill(OwnedRecord, Base):
     __tablename__ = 'creative_skills'
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     content: Mapped[str] = mapped_column(Text)
@@ -139,7 +166,7 @@ class SkillRevision(Base):
     updated_at: Mapped[str] = mapped_column(String(40))
 
 
-class CreativeCase(Base):
+class CreativeCase(OwnedRecord, Base):
     __tablename__ = "creative_cases"
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     job_id: Mapped[str] = mapped_column(String(36), unique=True)
@@ -158,10 +185,15 @@ class DatabaseConfigStore(FileConfigStore):
 
     def _read(self) -> list[dict]:
         with Session(self.engine) as session:
-            return [row.as_dict() for row in session.scalars(select(ModelConfiguration).order_by(ModelConfiguration.updated_at))]
+            statement = select(ModelConfiguration).order_by(ModelConfiguration.updated_at)
+            user = principal.get()
+            if user: statement = statement.where(ModelConfiguration.owner_id == user['id'])
+            return [row.as_dict() for row in session.scalars(statement)]
 
     def _cipher(self):
-        if not self.key_path.exists() and self._read():
+        with Session(self.engine) as session:
+            any_config = session.scalar(select(ModelConfiguration.id).limit(1))
+        if not self.key_path.exists() and any_config:
             raise HTTPException(503, "数据库已有配置但本机加密文件缺失，请恢复原加密文件。")
         return super()._cipher()
 
@@ -174,6 +206,7 @@ class DatabaseConfigStore(FileConfigStore):
                     row = session.get(ModelConfiguration, config_id, with_for_update=True)
                     if row is None:
                         raise HTTPException(404, "配置不存在，请刷新列表。")
+                    require_private(row)
                 else:
                     row = ModelConfiguration(id=str(uuid4()))
                     session.add(row)
@@ -202,9 +235,9 @@ def import_file_configs(directory: Path, engine: Engine) -> int:
             values = {**values, 'model_names': json.dumps(configured_models(values), ensure_ascii=False)}
             row = session.get(ModelConfiguration, values["id"])
             if row is None:
-                session.add(ModelConfiguration(**{column.name: values[column.name] for column in ModelConfiguration.__table__.columns}))
+                session.add(ModelConfiguration(**{column.name: values.get(column.name) for column in ModelConfiguration.__table__.columns}))
                 imported += 1
-            elif row.as_dict() != values:
+            elif {key:value for key,value in row.as_dict().items() if key != 'owner_id'} != values:
                 raise ValueError("数据库中已有相同 ID 的不同配置，迁移已取消，不会覆盖。")
     return imported
 

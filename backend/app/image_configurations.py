@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException, Request, Form, File, UploadFile
 from pydantic import BaseModel, SecretStr, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from app.authorization import require_private
 from app.database import ImageConfiguration, ImageJob, ModelConfiguration, DatabaseConfigStore
 from app.model_configs import ConfigInput, probe_connection, probe_models
 
@@ -88,6 +89,7 @@ class ImageConfigStore:
                 text_config = session.get(ModelConfiguration, text_config_id)
                 if text_config is None:
                     raise HTTPException(422, '所选服务商连接不存在，请重新选择。')
+                require_private(text_config)
             supplied = validated.api_key.get_secret_value() if validated.api_key else None
             previous = self.key(row.id, row.revision) if row else None
             if not supplied and (not row or validated.base_url != row.base_url or not previous):
@@ -114,6 +116,7 @@ class ImageConfigStore:
             with Session(self.engine) as session:
                 row = session.get(ModelConfiguration, str(text_config_id))
                 if row is None: raise HTTPException(404, '服务商连接不存在。')
+                require_private(row)
                 data = ConfigInput(name=row.name, base_url=row.base_url)
             key = DatabaseConfigStore(self.directory, self.engine).resolve_key(str(text_config_id), data)
             return data.base_url, key

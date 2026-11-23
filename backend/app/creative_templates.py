@@ -1,3 +1,4 @@
+from app.authorization import owner_view, require_edit
 """Natural-language templates only; imported skills are never executed as code."""
 import json
 import re
@@ -56,7 +57,7 @@ def timestamp():
 def template_view(row):
     data = json.loads(row.content)
     variables = list(dict.fromkeys(match.strip() for match in VARIABLE.findall(data['prompt'] + '\n' + data['skill'] + '\n' + data['notes'])))
-    return {**data, "id": row.id, "revision": row.revision, "updated_at": row.updated_at, "variables": variables}
+    return {**owner_view(row), **data, "id": row.id, "revision": row.revision, "updated_at": row.updated_at, "variables": variables}
 
 
 def render_template(session, request, extra):
@@ -115,6 +116,7 @@ def build_creative_router(engine):
                 row = session.get(CreativeTemplate, str(identifier), with_for_update=True)
                 if row is None:
                     raise HTTPException(404, "模板不存在。")
+                require_edit(row)
                 if row.revision != data.revision:
                     raise HTTPException(409, "模板已被修改，请重新载入。")
                 row.revision += 1
@@ -134,7 +136,7 @@ def build_creative_router(engine):
         return save(data, identifier)
 
     def case_view(row, job):
-        return {"id": row.id, "job_id": row.job_id, "title": row.title, "experience": row.experience, "issues": row.issues, "updated_at": row.updated_at, "image_url": f"/api/image-jobs/{row.job_id}/image", "prompt": job.prompt, "model_name": job.model_name, "product_snapshot": json.loads(job.product_snapshot), "template_snapshot": json.loads(job.template_snapshot)}
+        return {**owner_view(row), "id": row.id, "job_id": row.job_id, "title": row.title, "experience": row.experience, "issues": row.issues, "updated_at": row.updated_at, "image_url": f"/api/image-jobs/{row.job_id}/image", "prompt": job.prompt, "model_name": job.model_name, "product_snapshot": json.loads(job.product_snapshot), "template_snapshot": json.loads(job.template_snapshot)}
 
     @router.get('/cases')
     def list_cases():
@@ -150,6 +152,7 @@ def build_creative_router(engine):
             job = session.get(ImageJob, str(data.job_id), with_for_update=True)
             if job is None or job.status != 'succeeded':
                 raise HTTPException(422, "只能为已完成的图片记录经验。")
+            require_edit(job)
             row = session.scalar(select(CreativeCase).where(CreativeCase.job_id == job.id))
             if row is None:
                 row = CreativeCase(id=str(uuid4()), job_id=job.id)

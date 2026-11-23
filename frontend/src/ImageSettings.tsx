@@ -1,3 +1,4 @@
+import { apiFetch } from './apiFetch';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { imageConfigRequest, type ImageConfiguration } from './imageConfigApi';
 import { listConfigs, type ModelConfig, type ProbeResult, type ConnectionResult } from './modelConfigApi';
@@ -28,7 +29,7 @@ export default function ImageSettings(){
   const fileInput=useRef<HTMLInputElement>(null);
   useEffect(()=>{
     const current=startTaskPolling<ImageConfiguration|null>({
-      load:async signal=>{const response=await fetch('/api/image-configs',{signal,cache:'no-store'});const value=await response.json();if(!response.ok)throw new Error(typeof value.detail==='string'?value.detail:'图片配置读取失败。');return value;},
+      load:async signal=>{const response=await apiFetch('/api/image-configs',{signal,cache:'no-store'});const value=await response.json();if(!response.ok)throw new Error(typeof value.detail==='string'?value.detail:'图片配置读取失败。');return value;},
       pending:value=>!!value&&[value.generation.status,value.edit.status].some(activeStatus),
       onData:value=>{setConfig(value);setLoadError('');if(!dirtyRef.current&&value){setName(value.name);setUrl(value.base_url);setTextConfigId(value.text_config_id||'');setTextModel(value.text_model_name||'');}},
       onError:err=>setLoadError(err instanceof Error?err.message:'配置读取失败。'),onLoading:setLoading,
@@ -62,7 +63,7 @@ export default function ImageSettings(){
     const body=new FormData();body.set('request_id',id);body.set('authorized','yes');if(kind==='edit'&&reference)body.set('reference',reference);
     let knownFailure=false;
     try{
-      const response=await fetch(`/api/image-configs/verify/${kind}`,{method:'POST',body,signal:AbortSignal.timeout(30000)});
+      const response=await apiFetch(`/api/image-configs/verify/${kind}`,{method:'POST',body,signal:AbortSignal.timeout(30000)});
       knownFailure=response.status>=400&&response.status<500;
       const value=await response.json();
       if(!response.ok)throw new Error(typeof value.detail==='string'?value.detail:'验证请求未完成，请检查配置和参考图。');

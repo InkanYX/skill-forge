@@ -1,3 +1,4 @@
+from app.authorization import owner_view, require_edit
 """Durable queue and image artifact endpoints for local, single-user use."""
 import hashlib
 import json
@@ -52,6 +53,8 @@ class JobView(BaseModel):
     shot_name: str = ''
     shot_index: int | None = None
     task_id: str = ''
+    owner_id: str | None = None
+    can_edit: bool = True
     task_index: int = 0
     execution_profile: dict = {}
     execution_result: dict = {}
@@ -96,7 +99,7 @@ class LibraryPage(BaseModel):
 
 def view(row: ImageJob) -> JobView:
     fields = {name: getattr(row, name) for name in ("id", "config_id", "parent_job_id", "edit_instruction", "set_id", "set_name", "shot_name", "shot_index", "config_name", "model_name", "prompt", "size", "mode", "status", "message", "created_at", "updated_at")}
-    return JobView(**fields, execution_profile=json.loads(row.execution_profile or '{}'), execution_result=json.loads(row.execution_result or '{}'), preview_url=f'/api/image-jobs/{row.id}/preview' if row.status == 'succeeded' and row.execution_profile != '{}' else None, task_id=row.task_id or row.request_id, task_index=row.task_index, is_favorite=row.is_favorite, product_snapshot=json.loads(row.product_snapshot or '{}'), template_snapshot=json.loads(row.template_snapshot or '{}'), image_url=f"/api/image-jobs/{row.id}/image" if row.status == "succeeded" else None, reference_url=f"/api/image-jobs/{row.id}/reference" if row.mode == "edit" else None)
+    return JobView(**fields, **owner_view(row), execution_profile=json.loads(row.execution_profile or '{}'), execution_result=json.loads(row.execution_result or '{}'), preview_url=f'/api/image-jobs/{row.id}/preview' if row.status == 'succeeded' and row.execution_profile != '{}' else None, task_id=row.task_id or row.request_id, task_index=row.task_index, is_favorite=row.is_favorite, product_snapshot=json.loads(row.product_snapshot or '{}'), template_snapshot=json.loads(row.template_snapshot or '{}'), image_url=f"/api/image-jobs/{row.id}/image" if row.status == "succeeded" else None, reference_url=f"/api/image-jobs/{row.id}/reference" if row.mode == "edit" else None)
 
 
 def artifact(directory: Path, identifier: str, name: str) -> Path:
@@ -289,6 +292,7 @@ def cancel_job(engine, identifier: str) -> JobView:
         row = session.get(ImageJob, identifier, with_for_update=True)
         if row is None:
             raise HTTPException(404, '任务不存在。')
+        require_edit(row)
         if row.status == 'cancelled':
             return view(row)
         if row.status == 'running':
@@ -305,6 +309,8 @@ def cancel_set(engine, identifier: str):
         if session.scalar(select(ImageJob.id).where(ImageJob.set_id == identifier).limit(1)) is None:
             raise HTTPException(404, '套图记录不存在。')
         # PostgreSQL rechecks status after waiting for a worker's row lock.
+        for item in session.scalars(select(ImageJob).where(ImageJob.set_id == identifier)):
+            require_edit(item)
         cancelled = list(session.scalars(update(ImageJob).where(ImageJob.set_id == identifier, ImageJob.status == 'queued').values(status='cancelled', message='已取消排队，未调用服务商。', updated_at=now(), lease_until=None, encrypted_key='').returning(ImageJob.id)))
         counts = dict(session.execute(select(ImageJob.status, func.count()).where(ImageJob.set_id == identifier).group_by(ImageJob.status)).all())
         return {'cancelled_count': len(cancelled), 'counts': counts, 'message': f"已取消 {len(cancelled)} 项排队任务。已有图片保留，已开始执行的任务不会被中止。"}
@@ -473,6 +479,7 @@ def build_image_router(engine, directory: Path, image_configs=None):
             row = session.get(ImageJob, str(job_id), with_for_update=True)
             if row is None or row.status != 'succeeded' or row.execution_profile == '{}':
                 raise HTTPException(409, '只能检查已完成的标准生图结果。')
+            require_edit(row)
             result = json.loads(row.execution_result or '{}')
             result['review'] = {'status': status, 'notes': notes, 'method': 'human', 'updated_at': now()}
             row.execution_result = json.dumps(result, ensure_ascii=False)

@@ -1,3 +1,4 @@
+import { apiFetch } from './apiFetch';
 import { useEffect, useState } from 'react';
 import TaskCancel from './TaskCancel';
 import SystemStatus from './SystemStatus';
@@ -21,7 +22,7 @@ export default function Workspace() {
     async function load() {
       controller = new AbortController(); const timeout = window.setTimeout(() => controller.abort(), 12000);
       try {
-        const response = await fetch('/api/workspace', { signal: controller.signal, cache: 'no-store' }); const value = await response.json();
+        const response = await apiFetch('/api/workspace', { signal: controller.signal, cache: 'no-store' }); const value = await response.json();
         if (!response.ok) throw new Error(typeof value.detail === 'string' ? value.detail : '工作台数据读取失败。');
         if (active) { setData(value); setError(''); }
       } catch (err) { if (active) setError(err instanceof Error && err.name !== 'AbortError' ? err.message : '读取超时，请检查本机后端服务。'); }

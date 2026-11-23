@@ -1,3 +1,4 @@
+import { apiFetch } from './apiFetch';
 import { imageConfigRequest, type ImageConfiguration } from './imageConfigApi';
 export interface ModelConfig {
   id: string;
@@ -30,7 +31,7 @@ export interface ProbeResult extends ConnectionResult {
 }
 
 async function request<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
-  const response = await fetch(`/api/model-configs${path}`, {
+  const response = await apiFetch(`/api/model-configs${path}`, {
     method,
     headers: body ? { 'Content-Type': 'application/json' } : undefined,
     body: body ? JSON.stringify(body) : undefined,

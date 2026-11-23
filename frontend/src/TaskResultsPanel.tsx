@@ -1,3 +1,4 @@
+import { apiFetch } from './apiFetch';
 import { useEffect, useRef, useState } from 'react';
 import ExportDownload from './ExportDownload';
 import { formatImageSize } from './ImageSizePicker';
@@ -25,7 +26,7 @@ export default function TaskResultsPanel({ taskId, active = true, focusJobId }: 
   useEffect(() => {
     if (!active || !pageVisible) return;
     const current = startTaskPolling<ImageTaskDetail>({
-      load: async signal => readTaskResponse(await fetch(`/api/image-jobs/tasks/${encodeURIComponent(taskId)}`, { signal, cache: 'no-store' })),
+      load: async signal => readTaskResponse(await apiFetch(`/api/image-jobs/tasks/${encodeURIComponent(taskId)}`, { signal, cache: 'no-store' })),
       pending: taskPending, onData: value => { setTask(value); setError(''); },
       onError: err => setError(`${err instanceof Error ? err.message : '进度读取失败'}，请手动刷新。`), onLoading: setLoading,
     });
@@ -50,13 +51,13 @@ export default function TaskResultsPanel({ taskId, active = true, focusJobId }: 
     setCancelling(true); setError('');
     try {
       const body = new FormData(); body.set('action', 'cancel');
-      await readTaskResponse(await fetch(`/api/image-jobs/tasks/${taskId}/cancel`, { method: 'POST', body, signal: AbortSignal.timeout(12000) }));
+      await readTaskResponse(await apiFetch(`/api/image-jobs/tasks/${taskId}/cancel`, { method: 'POST', body, signal: AbortSignal.timeout(12000) }));
       await poller.current?.refresh();
     } catch (err) { setError(err instanceof Error ? err.message : '取消未完成。'); }
     finally { setCancelling(false); }
   }
   return <section className="task-results-panel" aria-label="任务运行结果">
-    <div className="task-result-toolbar"><div><h3>运行结果{task && ` · ${task.counts.total} 张`}</h3>{task && <p>{taskCounts(task)}</p>}</div><div className="task-toolbar-actions">{(task?.counts.queued || 0) > 0 && <button type="button" className="button-secondary" disabled={cancelling} onClick={cancel}>{cancelling ? '取消中…' : '取消排队'}</button>}<button type="button" className="button-secondary" disabled={loading} onClick={() => { void poller.current?.refresh(); }}>{loading ? '读取中…' : '刷新进度'}</button></div></div>
+    <div className="task-result-toolbar"><div><h3>运行结果{task && ` · ${task.counts.total} 张`}</h3>{task && <p>{taskCounts(task)}</p>}</div><div className="task-toolbar-actions">{(task?.counts.queued || 0) > 0 && task?.can_manage !== false && <button type="button" className="button-secondary" disabled={cancelling} onClick={cancel}>{cancelling ? '取消中…' : '取消排队'}</button>}<button type="button" className="button-secondary" disabled={loading} onClick={() => { void poller.current?.refresh(); }}>{loading ? '读取中…' : '刷新进度'}</button></div></div>
     {error && <p className="feedback feedback-error" role="alert">{error}</p>}
     {!task && !error && <p role="status">正在读取任务…</p>}
     {task && <>
