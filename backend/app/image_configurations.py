@@ -25,9 +25,10 @@ class ImageConfigInput(BaseModel):
     base_url: str
     api_key: SecretStr | None = None
     text_model_name: str = Field(default='', max_length=200)
+    vision_model_name: str = Field(default='', max_length=200)
     text_config_id: UUID | None = None
 
-    @field_validator('text_model_name')
+    @field_validator('text_model_name', 'vision_model_name')
     @classmethod
     def validate_text_model(cls, value):
         value = value.strip()
@@ -70,7 +71,8 @@ class ImageConfigStore:
         return {'id': row.id, 'name': row.name, 'base_url': row.base_url, 'model_name': MODEL,
                 'model_names': [MODEL], 'has_api_key': bool(self.key(row.id, row.revision)),
                 'updated_at': row.updated_at, 'rules': RULES,
-                'text_model_name': row.text_model_name, 'text_config_id': row.text_config_id,
+                'text_model_name': row.text_model_name, 'vision_model_name': row.vision_model_name,
+                'text_config_id': row.text_config_id,
                 'generation': self.result(session, row.generation_job_id), 'edit': self.result(session, row.edit_job_id)}
 
     def get(self, owner):
@@ -103,6 +105,7 @@ class ImageConfigStore:
                 row.revision = str(uuid4()); row.generation_job_id = row.edit_job_id = None
             row.name, row.base_url, row.updated_at = data.name, validated.base_url, now()
             if 'text_model_name' in data.model_fields_set: row.text_model_name = data.text_model_name
+            if 'vision_model_name' in data.model_fields_set: row.vision_model_name = data.vision_model_name
             if 'text_config_id' in data.model_fields_set: row.text_config_id = text_config_id
             session.flush()
             identifier, revision = row.id, row.revision
@@ -131,6 +134,13 @@ class ImageConfigStore:
             raise HTTPException(422, '请先设置文字模型。')
         base_url, key = self.resolve_connection(owner, current['text_config_id'])
         return base_url, key, current['text_model_name']
+
+    def resolve_vision(self, owner):
+        current = self.get(owner)
+        if not current or not current['vision_model_name']:
+            raise HTTPException(422, '未配置视觉模型，无法自动质检；请设置视觉模型或改由人工审核。')
+        base_url, key = self.resolve_connection(owner, current['text_config_id'])
+        return base_url, key, current['vision_model_name']
 
     def snapshot(self, owner, identifier):
         self.require_db()

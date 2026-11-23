@@ -15,7 +15,7 @@ export default function ImageSettings(){
   const [config,setConfig]=useState<ImageConfiguration|null>(null);
   const [name,setName]=useState('我的模型服务');const [url,setUrl]=useState('https://ai-gateway.valsun.cn/v1');const [key,setKey]=useState('');
   const [connections,setConnections]=useState<ModelConfig[]>([]);
-  const [textConfigId,setTextConfigId]=useState('');const [textModel,setTextModel]=useState('');
+  const [textConfigId,setTextConfigId]=useState('');const [textModel,setTextModel]=useState('');const [visionModel,setVisionModel]=useState('');
   const [candidates,setCandidates]=useState<string[]>([]);const [modelMessage,setModelMessage]=useState('');const [modelError,setModelError]=useState('');
   const [loading,setLoading]=useState(true);const [busy,setBusy]=useState('');const [dirty,setDirty]=useState(false);
   const [loadError,setLoadError]=useState('');const [saveError,setSaveError]=useState('');const [saved,setSaved]=useState(false);
@@ -31,7 +31,7 @@ export default function ImageSettings(){
     const current=startTaskPolling<ImageConfiguration|null>({
       load:async signal=>{const response=await apiFetch('/api/image-configs',{signal,cache:'no-store'});const value=await response.json();if(!response.ok)throw new Error(typeof value.detail==='string'?value.detail:'图片配置读取失败。');return value;},
       pending:value=>!!value&&[value.generation.status,value.edit.status].some(activeStatus),
-      onData:value=>{setConfig(value);setLoadError('');if(!dirtyRef.current&&value){setName(value.name);setUrl(value.base_url);setTextConfigId(value.text_config_id||'');setTextModel(value.text_model_name||'');}},
+      onData:value=>{setConfig(value);setLoadError('');if(!dirtyRef.current&&value){setName(value.name);setUrl(value.base_url);setTextConfigId(value.text_config_id||'');setTextModel(value.text_model_name||'');setVisionModel(value.vision_model_name||'');}},
       onError:err=>setLoadError(err instanceof Error?err.message:'配置读取失败。'),onLoading:setLoading,
     });return()=>current.stop();
   },[attempt]);
@@ -42,7 +42,7 @@ export default function ImageSettings(){
   const submissionUnclear=Object.values(ambiguous).some(Boolean);
   async function save(event:FormEvent){
     event.preventDefault();if(busy||submissionUnclear)return;setBusy('save');setSaveError('');setSaved(false);
-    try{const value=await imageConfigRequest<ImageConfiguration>('',{name,base_url:url,api_key:key||null,text_model_name:textModel,text_config_id:textConfigId||null});setConfig(value);setKey('');setDirty(false);setSaved(true);setConnection(undefined);setConnectionError('');setAuthorized(false);setTasks({});setSubmitErrors({});requests.current={};setAttempt(v=>v+1);}
+    try{const value=await imageConfigRequest<ImageConfiguration>('',{name,base_url:url,api_key:key||null,text_model_name:textModel,vision_model_name:visionModel,text_config_id:textConfigId||null});setConfig(value);setKey('');setDirty(false);setSaved(true);setConnection(undefined);setConnectionError('');setAuthorized(false);setTasks({});setSubmitErrors({});requests.current={};setAttempt(v=>v+1);}
     catch(err){setSaveError(err instanceof Error?err.message:'保存失败。');}finally{setBusy('');}
   }
   async function readTextModels(){
@@ -95,6 +95,7 @@ export default function ImageSettings(){
           <div className="settings-purpose-text"><div className="settings-purpose-heading"><strong>文字分析</strong><span>按需设置</span></div>
             <div className="form-field"><label htmlFor="text-model-connection">使用的服务商连接</label><select id="text-model-connection" value={textConfigId} onChange={event=>{const id=event.target.value;const existing=connections.find(item=>item.id===id);setTextConfigId(id);setTextModel(existing?.model_name||'');setCandidates([]);setModelMessage('');setModelError('');changeDraft();}}><option value="">共用当前服务商连接</option>{connections.map(item=><option key={item.id} value={item.id}>{item.name} · {item.base_url}</option>)}</select><small>{textConfigId?`沿用已有连接：${alternate?.base_url||'连接不存在，请重新选择'}。地址和密钥保持不变。`:'与图片生成共用已填写的 Base URL 和 API Key，无需重复配置。'}</small></div>
             <div className="form-field"><label htmlFor="text-purpose-model">文字模型</label><div className="input-with-action"><input id="text-purpose-model" list="text-model-options" maxLength={200} value={textModel} placeholder="选择或输入文字模型 ID" onChange={event=>{setTextModel(event.target.value);changeDraft();}} /><button type="button" className="button-secondary" disabled={!!busy||(!textConfigId&&(!config?.has_api_key||url!==config.base_url||!!key))} onClick={()=>void readTextModels()}>{busy==='models'?'读取中…':'读取模型'}</button></div><datalist id="text-model-options">{textModels.map(model=><option key={model} value={model}/>)}</datalist><small>可留空，后续用于文字分析、策划与提示词功能。</small></div>
+<div className="form-field"><label htmlFor="vision-purpose-model">视觉模型（Agent 质检）</label><div className="input-with-action"><input id="vision-purpose-model" list="vision-model-options" maxLength={200} value={visionModel} placeholder="选择或输入支持图片输入的模型 ID" onChange={event=>{setVisionModel(event.target.value);changeDraft();}} /><button type="button" className="button-secondary" disabled={!!busy||(!textConfigId&&(!config?.has_api_key||url!==config.base_url||!!key))} onClick={()=>void readTextModels()}>{busy==='models'?'读取中…':'读取模型'}</button></div><datalist id="vision-model-options">{textModels.map(model=><option key={model} value={model}/>)}</datalist><small>{visionModel?'视觉模型将用于 Agent 出图后的自动质检。':'可留空；不填则 Agent 只能以“待人工审核”结束。'}</small></div>
             {modelMessage&&<p className="settings-model-message" role="status">{modelMessage}</p>}{modelError&&<p className="settings-model-error" role="alert">{modelError}</p>}
           </div>
         </section>

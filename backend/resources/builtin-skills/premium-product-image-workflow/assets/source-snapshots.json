@@ -1,0 +1,30 @@
+[
+  {
+    "repository": "feichanggege/ecommerce-visual-copywriting-skill",
+    "installed_directory": "ecommerce-visual-copywriting-skill",
+    "entry_sha256": "ad17124d9dd410d6032459333604f7d50238badd3c96df429235009f57179a68",
+    "snapshot_date": "2026-11-02",
+    "commit": "not recorded; local installed snapshot hashed"
+  },
+  {
+    "repository": "buluslan/gpt-image2-ecommerce",
+    "installed_directory": "gpt-image2-ecommerce",
+    "entry_sha256": "a6f565019be50d57b62cbc2b5a4021ab297ecee4907ad22fa015cd778f02f6e0",
+    "snapshot_date": "2026-11-02",
+    "commit": "not recorded; local installed snapshot hashed"
+  },
+  {
+    "repository": "wzj177/ecommerce-image-suite",
+    "installed_directory": "ecommerce-image-suite",
+    "entry_sha256": "7e92acc921be09ae0840fcb20cecec520e673a7c991bbe77dedbeeef83c28ab4",
+    "snapshot_date": "2026-11-02",
+    "commit": "not recorded; local installed snapshot hashed"
+  },
+  {
+    "repository": "xianyu110/ecommerce-image-skills",
+    "installed_directory": "amazon-a-plus",
+    "entry_sha256": "50577f871d4da42d2af1ebaa7aeb0d860ebd249a7d6a4542309d90c15f3ab94b",
+    "snapshot_date": "2026-11-02",
+    "commit": "not recorded; local installed snapshot hashed"
+  }
+]

@@ -110,7 +110,7 @@ def create_job(engine, directory, config_id, model_name, prompt, size, request_i
     return create_jobs(engine, directory, config_id, model_name, prompt, size, request_id, reference, 1)[0]
 
 
-def create_jobs(engine, directory, config_id, model_name, prompt, size, request_id, reference, count, template_request=None, product_request=None, source_job_id=None, image_set=None, standard_config=None):
+def create_jobs(engine, directory, config_id, model_name, prompt, size, request_id, reference, count, template_request=None, product_request=None, source_job_id=None, image_set=None, standard_config=None, owner_id=None):
     if not 1 <= count <= 8:
         raise HTTPException(422, "每次请选择 1 至 8 张图片。")
     try:
@@ -220,7 +220,7 @@ def create_jobs(engine, directory, config_id, model_name, prompt, size, request_
         rows = []
         for index, (item_request_id, plan) in enumerate(zip(request_ids, plans)):
             identifier = str(uuid4())
-            row = ImageJob(id=identifier, request_id=item_request_id, fingerprint=fingerprint, config_id=config_id, config_name=config.name, base_url=config.base_url, encrypted_key=config.encrypted_key, model_name=model_name, prompt=plan['prompt'], size=plan['size'], mode="edit" if reference else "generate", status="queued", message="等待后台 Worker 执行", created_at=now(), updated_at=now())
+            row = ImageJob(id=identifier, request_id=item_request_id, fingerprint=fingerprint, config_id=config_id, config_name=config.name, base_url=config.base_url, encrypted_key=config.encrypted_key, model_name=model_name, prompt=plan['prompt'], size=plan['size'], mode="edit" if reference else "generate", status="queued", message="等待后台 Worker 执行", created_at=now(), updated_at=now(), owner_id=owner_id)
             row.task_id, row.task_index = request_id, index
             if standard_config: row.execution_profile = json.dumps(standard_config, ensure_ascii=False)
             if reference:

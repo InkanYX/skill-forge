@@ -9,14 +9,17 @@ import ArtworkLibrary from './ArtworkLibrary';
 import ImageRevision from './ImageRevision';
 import ImageSetStudio from './ImageSetStudio';
 import SkillLibrary from './SkillLibrary';
+import AgentStudio from './AgentStudio';
 import Workspace from './Workspace';
 
 const pages = [
   { id: 'workspace', href: '#/', title: '我的工作台' },
   { id: 'studio', href: '#/studio', title: '图片创作' },
+  { id: 'agent', href: '#/agent', title: 'Agent 制作' },
   { id: 'library', href: '#/library', title: '生成记录' },
   { id: 'products', href: '#/products', title: '产品资料' },
   { id: 'templates', href: '#/templates', title: '创作模板' },
+  { id: 'skills', href: '#/skills', title: '技能库' },
   { id: 'members', href: '#/members', title: '成员管理' },
   { id: 'settings', href: '#/settings', title: '个人模型配置' },
 ] as const;
@@ -39,6 +42,7 @@ function currentPage() {
   if (hash === '#/edit') return 'edit';
   if (hash === '#/sets') return 'sets';
   if (hash === '#/skills') return 'skills';
+  if (hash === '#/agent') return 'agent';
   return hash === '#/studio' || hash === '#image-studio-heading' ? 'studio'
     : hash === '#/settings' || hash === '#model-settings-heading' ? 'settings' : 'workspace';
 }
@@ -66,12 +70,12 @@ function WorkspaceApp() {
           <span className="brand-icon">SF</span><span>Skill Forge<small>电商图片工作台</small></span>
         </a>
         <div className="workspace-label">团队工作空间</div>
-        <nav aria-label="工作空间导航">{pages.filter(item=>item.id!=='members'||user.role==='admin').map((item) => <a key={item.id} className={`nav-link ${(page === item.id || ((page === 'edit' || page === 'sets') && item.id === 'studio') || (page === 'skills' && item.id === 'templates')) ? 'nav-active' : ''}`} aria-current={(page === item.id || ((page === 'edit' || page === 'sets') && item.id === 'studio') || (page === 'skills' && item.id === 'templates')) ? 'page' : undefined} href={item.href}>{item.title}</a>)}</nav>
+        <nav aria-label="工作空间导航">{pages.filter(item=>item.id!=='members'||user.role==='admin').map((item) => { const active = page === item.id || ((page === 'edit' || page === 'sets') && item.id === 'studio'); return <a key={item.id} className={`nav-link ${active ? 'nav-active' : ''}`} aria-current={active ? 'page' : undefined} href={item.href}>{item.title}</a>; })}</nav>
         <div className="sidebar-note"><span className="note-label">创作与经验</span><p>从产品素材到可复用的制作经验。</p><small>产品 · 模板 · Skill · 作品</small></div>
       </aside>
 
       <div className="main-shell">
-        <header className="topbar"><span>工作空间 / {page === 'edit' ? '图片创作 / 继续修改' : page === 'sets' ? '图片创作 / 成套制作' : page === 'skills' ? '创作模板 / Skill 管理' : pages.find((item) => item.id === page)?.title}</span><div className="account-controls"><span>{user.display_name}<small>{user.role==='admin'?'管理员':'成员'}</small></span><button type="button" onClick={changePassword}>修改密码</button><button type="button" onClick={logout}>退出</button></div></header>
+        <header className="topbar"><span>工作空间 / {page === 'edit' ? '图片创作 / 继续修改' : page === 'sets' ? '图片创作 / 成套制作' : pages.find((item) => item.id === page)?.title}</span><div className="account-controls"><span>{user.display_name}<small>{user.role==='admin'?'管理员':'成员'}</small></span><button type="button" onClick={changePassword}>修改密码</button><button type="button" onClick={logout}>退出</button></div></header>
         <main id="workspace">
           {page === 'members' && <MemberManagement />}
           {page === 'studio' && <ImageCreation route={route} />}
@@ -82,8 +86,9 @@ function WorkspaceApp() {
           {page === 'edit' && <ImageRevision key={route} />}
           {page === 'sets' && <ImageSetStudio key={route} />}
           {page === 'skills' && <SkillLibrary />}
+          {page === 'agent' && <AgentStudio />}
           {page === 'workspace' && <Workspace />}
-          <footer className="page-footer">Skill Forge · 图片制作与经验复用<span>图片创作 / 参考图编辑 / 本机开发模式</span></footer>
+          <footer className="page-footer">Skill Forge · 图片制作与经验复用<span>图片创作 / Agent 制作 / 账号隔离</span></footer>
         </main>
       </div>
     </div>

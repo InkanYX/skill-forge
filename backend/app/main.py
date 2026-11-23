@@ -27,6 +27,8 @@ from app.creative_templates import build_creative_router
 from app.products import build_product_router
 from app.image_exports import build_export_router
 from app.skills import build_skill_router
+from app.skill_packages import build_skill_router as build_package_router, seed_builtin
+from app.agent_runtime import AgentWorker, build_agent_router
 from app.workspace import build_workspace_router
 
 VERSION = "0.1.0"
@@ -44,9 +46,18 @@ def create_app(data_dir: Path | None = None, probe=probe_models, db_url: str | N
     standard_enabled = data_dir is None if enable_standard is None else enable_standard
     @asynccontextmanager
     async def lifespan(app):
+        if engine and data_dir is None:
+            try:
+                seed_builtin(engine, directory)
+            except Exception:
+                # Built-in seeding is best effort; a failure must not block the API.
+                pass
         worker = StandardWorker(image_store) if standard_enabled and engine and start_image_worker else None
+        agent_worker = AgentWorker(engine, directory, image_store) if standard_enabled and engine and start_image_worker else None
         if worker: worker.start()
+        if agent_worker: agent_worker.start()
         yield
+        if agent_worker: agent_worker.stop()
         if worker: worker.stop()
         if engine:
             engine.dispose()
@@ -72,7 +83,7 @@ def create_app(data_dir: Path | None = None, probe=probe_models, db_url: str | N
         new_token = not re.fullmatch(r'[A-Za-z0-9_-]{43}', token)
         if new_token: token = secrets.token_urlsafe(32)
         request.state.image_owner = user['id'] if user else hashlib.sha256(token.encode()).hexdigest()
-        if request.url.path.startswith(("/api/auth", "/api/admin", "/api/image-configs", "/api/model-configs", "/api/image-jobs", "/api/templates", "/api/cases", "/api/products", "/api/skills", "/api/workspace")):
+        if request.url.path.startswith(("/api/auth", "/api/admin", "/api/image-configs", "/api/model-configs", "/api/image-jobs", "/api/templates", "/api/cases", "/api/products", "/api/skills", "/api/skill-packages", "/api/agent", "/api/workspace")):
             origin = request.headers.get("origin")
             allowed = set(filter(None,os.environ.get("SKILL_FORGE_ALLOWED_ORIGINS", "").split(","))) | {f"http://{host}:{port}" for host in ("localhost", "127.0.0.1") for port in (5173, 8000)}
             if origin and origin not in allowed:
@@ -81,9 +92,12 @@ def create_app(data_dir: Path | None = None, probe=probe_models, db_url: str | N
             length = request.headers.get("content-length", "")
             image_verification = request.url.path.startswith('/api/image-configs/verify/')
             asset_upload = request.url.path.startswith('/api/products/') and request.url.path.endswith('/assets')
-            if (request.url.path.startswith("/api/image-jobs") or asset_upload or image_verification) and request.method == "POST" and (content_type != "multipart/form-data" or not length.isdecimal() or int(length) > 21 * 1024 * 1024):
-                return JSONResponse(status_code=413, content={"detail": "请使用不超过 20 MB 的参考图片提交。"})
-            if not asset_upload and not image_verification and request.url.path.startswith(("/api/auth", "/api/admin", "/api/image-configs", "/api/model-configs", "/api/templates", "/api/cases", "/api/products", "/api/skills")) and request.method in ("POST", "PUT") and (content_type != "application/json" or not length.isdecimal() or int(length) > 256000):
+            package_import = request.url.path == '/api/skill-packages/import'
+            agent_upload = request.url.path == '/api/agent/runs'
+            if (request.url.path.startswith("/api/image-jobs") or asset_upload or image_verification or package_import or agent_upload) and request.method == "POST" and (content_type != "multipart/form-data" or not length.isdecimal() or int(length) > 21 * 1024 * 1024):
+                return JSONResponse(status_code=413, content={"detail": "请使用不超过 20 MB 的参考图片或技能包提交。"})
+            bodyless_post = request.method == 'POST' and (not length.isdecimal() or int(length) == 0)
+            if not asset_upload and not image_verification and not package_import and not agent_upload and not bodyless_post and request.url.path.startswith(("/api/auth", "/api/admin", "/api/image-configs", "/api/model-configs", "/api/templates", "/api/cases", "/api/products", "/api/skills", "/api/skill-packages", "/api/agent")) and request.method in ("POST", "PUT") and (content_type != "application/json" or not length.isdecimal() or int(length) > 256000):
                 return JSONResponse(status_code=415, content={"detail": "请使用 JSON 请求。"})
         context_token = principal.set(user if auth_enabled else None)
         try:
@@ -92,7 +106,7 @@ def create_app(data_dir: Path | None = None, probe=probe_models, db_url: str | N
             principal.reset(context_token)
         if not auth_enabled and new_token and request.url.path.startswith('/api/image-configs'):
             response.set_cookie('sf_image_session', token, httponly=True, samesite='strict', max_age=31536000)
-        if request.url.path.startswith(("/api/auth", "/api/admin", "/api/image-configs", "/api/model-configs", "/api/image-jobs", "/api/templates", "/api/cases", "/api/products", "/api/skills", "/api/workspace")):
+        if request.url.path.startswith(("/api/auth", "/api/admin", "/api/image-configs", "/api/model-configs", "/api/image-jobs", "/api/templates", "/api/cases", "/api/products", "/api/skills", "/api/skill-packages", "/api/agent", "/api/workspace")):
             response.headers["Cache-Control"] = "no-store"
         return response
 
@@ -123,6 +137,8 @@ def create_app(data_dir: Path | None = None, probe=probe_models, db_url: str | N
     application.include_router(build_export_router(engine, directory))
     application.include_router(build_creative_router(engine))
     application.include_router(build_skill_router(engine))
+    application.include_router(build_package_router(engine, directory))
+    application.include_router(build_agent_router(engine, directory, image_store))
     application.include_router(build_workspace_router(engine))
     application.include_router(build_product_router(engine, directory))
     router = APIRouter(prefix="/api")

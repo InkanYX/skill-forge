@@ -1,0 +1,663 @@
+{
+  "catalog_version": 1,
+  "scenarios": [
+    {
+      "id": "a-plus-modules",
+      "name": "亚马逊 A+ 模块图（精确尺寸）",
+      "keywords": [
+        "A+",
+        "A+ Content",
+        "亚马逊A+",
+        "模块图",
+        "970x600",
+        "970x300",
+        "300x300",
+        "品牌故事模块",
+        "Enhanced Brand Content"
+      ],
+      "visual_recipe": "One module, one question; photo with a dedicated text region or a large corresponding detail. Use the project's actual module size.",
+      "source_sha256": "9ae24d5cbe06c62c0d87707499a01677e90ab8e68ad12f37fc61c0bba406e00e",
+      "boundary": "Visual planning aid only; no facts, claims, model, platform policy or upload authorization supplied."
+    },
+    {
+      "id": "before-after",
+      "name": "使用前后对比图",
+      "keywords": [
+        "对比",
+        "before after",
+        "前后",
+        "效果对比",
+        "transformation",
+        "变化图"
+      ],
+      "visual_recipe": "Show only a real, documented change under comparable conditions. Never manufacture product performance evidence.",
+      "source_sha256": "04675707e1bd1ce47c6faa85481234693ec21e06c801ce794782516a86ed93a0",
+      "boundary": "Visual planning aid only; no facts, claims, model, platform policy or upload authorization supplied."
+    },
+    {
+      "id": "brand-story",
+      "name": "品牌故事图（创始人/工艺/传承叙事）",
+      "keywords": [
+        "品牌故事",
+        "brand story",
+        "创始人",
+        "工艺",
+        "传承",
+        "匠心",
+        "brand narrative",
+        "品牌叙事"
+      ],
+      "visual_recipe": "One sourced brand message, an atmospheric image and restrained typography; do not invent founding history or certifications.",
+      "source_sha256": "e575f64ad5648225fd1068bb2865e34aa3b079c607d3006febafa54ef0f737d5",
+      "boundary": "Visual planning aid only; no facts, claims, model, platform policy or upload authorization supplied."
+    },
+    {
+      "id": "bulk-product-swap",
+      "name": "爆款图换品（保版式批量替换产品）",
+      "keywords": [
+        "换品",
+        "爆款换品",
+        "套图换产品",
+        "product swap",
+        "同款不同品",
+        "复制爆款图",
+        "bulk swap"
+      ],
+      "visual_recipe": "One job per approved replacement product, preserving its own identity rather than transplanting another product's geometry or claims.",
+      "source_sha256": "fccc73a47bc5bf0e11879e0083d269159edef39bb4afac0976b3c4d76fa69b3a",
+      "boundary": "Visual planning aid only; no facts, claims, model, platform policy or upload authorization supplied."
+    },
+    {
+      "id": "bulk-translate",
+      "name": "保版式批量翻译（多市场图集一键换语言）",
+      "keywords": [
+        "图翻译",
+        "翻译图",
+        "换语言",
+        "多市场",
+        "本地化图",
+        "translate images",
+        "listing 翻译"
+      ],
+      "visual_recipe": "One locale and exact approved text list per job; preserve layout, identity and supplied measurement meaning.",
+      "source_sha256": "606d53e3a7ba8303852da46d8660191d01da9c34be029bc9349595cbb24e5dbb",
+      "boundary": "Visual planning aid only; no facts, claims, model, platform policy or upload authorization supplied."
+    },
+    {
+      "id": "comparison-chart",
+      "name": "竞品对比图（横向 vs 对比）",
+      "keywords": [
+        "对比图",
+        "竞品对比",
+        "vs",
+        "comparison",
+        "横向对比",
+        "comparison chart",
+        "vs竞品",
+        "功能对比"
+      ],
+      "visual_recipe": "Compare only verified attributes of authorized own variants; avoid unsupported superiority or competitor identifiers.",
+      "source_sha256": "5d65dda463f77cbeab4694dd470ab665ae78902e48816bdde6ebfdec661db3fb",
+      "boundary": "Visual planning aid only; no facts, claims, model, platform policy or upload authorization supplied."
+    },
+    {
+      "id": "creative-concept",
+      "name": "创意概念广告图",
+      "keywords": [
+        "创意图",
+        "概念图",
+        "creative",
+        "概念广告",
+        "品牌广告",
+        "创意广告",
+        "concept art"
+      ],
+      "visual_recipe": "An expressive composition whose staging remains distinct from real product capabilities. Protect the actual SKU or label as concept.",
+      "source_sha256": "a1b34a1d518daede97bfc14022e6b241423135ac62a40ea3bfcef725c635f5e7",
+      "boundary": "Visual planning aid only; no facts, claims, model, platform policy or upload authorization supplied."
+    },
+    {
+      "id": "detail-macro",
+      "name": "细节微距图",
+      "keywords": [
+        "细节图",
+        "微距",
+        "macro",
+        "特写",
+        "close-up",
+        "detail shot",
+        "细节展示"
+      ],
+      "visual_recipe": "One genuinely visible detail with large scale and credible texture; do not invent microstructure, coatings or manufacturing processes.",
+      "source_sha256": "885f1367fbde784d2c6c93e789d184c50442ac52648ef887d67a42cabc38905d",
+      "boundary": "Visual planning aid only; no facts, claims, model, platform policy or upload authorization supplied."
+    },
+    {
+      "id": "device-mockup",
+      "name": "设备界面模型",
+      "keywords": [
+        "设备模型",
+        "界面模型",
+        "mockup",
+        "UI展示",
+        "APP截图",
+        "设备展示",
+        "屏幕展示",
+        "device mockup",
+        "SaaS"
+      ],
+      "visual_recipe": "Show the approved screen artwork on the actual supplied device view, preserving bezel, ports and geometry.",
+      "source_sha256": "fc24db61919f2ae937a61ae7d19ba27c9ec312cf91db9ea63f6c0b50e0075a60",
+      "boundary": "Visual planning aid only; no facts, claims, model, platform policy or upload authorization supplied."
+    },
+    {
+      "id": "edit-bg-swap",
+      "name": "换背景（保产品换场景）",
+      "keywords": [
+        "换背景",
+        "改背景",
+        "background swap",
+        "换场景",
+        "bg change",
+        "抠图换景",
+        "换底",
+        "背景替换"
+      ],
+      "visual_recipe": "Keep the exact product and camera; replace only the environment with coherent contact and reflections.",
+      "source_sha256": "044b5ad92dfefe41e7cdb14b9e5c4172bd93b51d6e2fe8b43b77759ff12ae51f",
+      "boundary": "Visual planning aid only; no facts, claims, model, platform policy or upload authorization supplied."
+    },
+    {
+      "id": "edit-localization",
+      "name": "本地化（同产品不同市场视觉调整）",
+      "keywords": [
+        "本地化",
+        "localization",
+        "多站点",
+        "US/EU/SEA",
+        "市场适配",
+        "区域视觉",
+        "本地化改图"
+      ],
+      "visual_recipe": "Replace only approved visible text with the approved local-language strings. Preserve product labels unless explicitly targeted.",
+      "source_sha256": "d75c2b141804ecfdb9d636291be7db389db98ddfe4e337d4e0aaec35120dc3dc",
+      "boundary": "Visual planning aid only; no facts, claims, model, platform policy or upload authorization supplied."
+    },
+    {
+      "id": "edit-mask",
+      "name": "蒙版/局部编辑（保区域改区域）",
+      "keywords": [
+        "蒙版",
+        "局部编辑",
+        "mask edit",
+        "inpaint",
+        "局部改",
+        "区域编辑",
+        "保留区域"
+      ],
+      "visual_recipe": "One precise target, with protected outside regions. Verify the actual tool's mask capability first.",
+      "source_sha256": "533e89ac5d25a95b974bc2c2b9bd31f2022dc7a87e899649df16ec739e9753d6",
+      "boundary": "Visual planning aid only; no facts, claims, model, platform policy or upload authorization supplied."
+    },
+    {
+      "id": "edit-recolor",
+      "name": "换色（产品多色变体）",
+      "keywords": [
+        "换色",
+        "改色",
+        "recolor",
+        "颜色变体",
+        "多色",
+        "color variant",
+        "配色",
+        "颜色替换"
+      ],
+      "visual_recipe": "Change only the explicitly named surfaces to the approved color. Preserve texture, hardware, marks, scene and geometry.",
+      "source_sha256": "477b135bf83c4d311be511ce3e1115661b0d874e6c25a6f464b30b4403faa980",
+      "boundary": "Visual planning aid only; no facts, claims, model, platform policy or upload authorization supplied."
+    },
+    {
+      "id": "edit-seasonal",
+      "name": "换季（同产品不同季节氛围）",
+      "keywords": [
+        "换季",
+        "季节氛围",
+        "圣诞版",
+        "春节版",
+        "夏日版",
+        "seasonal edit",
+        "节日换肤",
+        "季节改图"
+      ],
+      "visual_recipe": "Change only the approved seasonal environment or graphic treatment; update coherent light without adding product functions.",
+      "source_sha256": "1d76551fac601fef39b035cb99fdcb2860cac30d79b94ccddde3c546ba50ffd8",
+      "boundary": "Visual planning aid only; no facts, claims, model, platform policy or upload authorization supplied."
+    },
+    {
+      "id": "exploded-view",
+      "name": "技术拆解/爆炸图",
+      "keywords": [
+        "拆解图",
+        "爆炸图",
+        "exploded view",
+        "技术图",
+        "结构图",
+        "内部结构",
+        "拆机",
+        "teardown",
+        "cross-section"
+      ],
+      "visual_recipe": "Use actual supplied engineering views; absent those, do not invent hidden parts or offer SKU-faithful disassembly.",
+      "source_sha256": "41ab4281ea34063d6666df2eb36efc2629ea256862227ded0e226dc24b90bf18",
+      "boundary": "Visual planning aid only; no facts, claims, model, platform policy or upload authorization supplied."
+    },
+    {
+      "id": "flat-lay",
+      "name": "平铺图",
+      "keywords": [
+        "平铺图",
+        "flat lay",
+        "俯拍",
+        "top-down",
+        "flatlay",
+        "俯视图"
+      ],
+      "visual_recipe": "Top-down composition with the real product clearly separated from permitted styling props; no implied included accessories.",
+      "source_sha256": "842f0716769f133fc56911e49f559c73c5d334fb64668e75b56cfc0d468296ab",
+      "boundary": "Visual planning aid only; no facts, claims, model, platform policy or upload authorization supplied."
+    },
+    {
+      "id": "ghost-mannequin",
+      "name": "隐形模特",
+      "keywords": [
+        "隐形模特",
+        "ghost mannequin",
+        "invisible model",
+        "3D服装",
+        "服装展示",
+        "无人模特",
+        "中空模特",
+        "flat mannequin"
+      ],
+      "visual_recipe": "Preserve garment cut, seams and print; remove visible support only where supplied references establish the garment shape.",
+      "source_sha256": "70ae6e77be8702a70191cff5a68d7667c565f5ec53a3e84354d8d9477879e4ab",
+      "boundary": "Visual planning aid only; no facts, claims, model, platform policy or upload authorization supplied."
+    },
+    {
+      "id": "gift-set",
+      "name": "节日礼盒场景图（节庆送礼套装）",
+      "keywords": [
+        "礼盒",
+        "节日礼盒",
+        "gift set",
+        "圣诞礼盒",
+        "新年礼盒",
+        "情人节礼盒",
+        "送礼",
+        "gift box",
+        "节日套装"
+      ],
+      "visual_recipe": "Present verified set contents as a balanced gift arrangement; never add packaging, discounts or accessories without confirmation.",
+      "source_sha256": "246b0b2085ee0a32957ca7a15486c3784ace207df979751fa5cb4c7c0fcc8371",
+      "boundary": "Visual planning aid only; no facts, claims, model, platform policy or upload authorization supplied."
+    },
+    {
+      "id": "hero-image",
+      "name": "白底/纯色底产品主图",
+      "keywords": [
+        "白底图",
+        "主图",
+        "hero image",
+        "白背景",
+        "product shot",
+        "packshot",
+        "产品照",
+        "商品主图"
+      ],
+      "visual_recipe": "Full product on clean white; no new text, props, badges or non-included items. Protect all extremities.",
+      "source_sha256": "bc3d3fd1eb84ceeab177be48c61c2efaaa97747db811e64197713c83ecca419f",
+      "boundary": "Visual planning aid only; no facts, claims, model, platform policy or upload authorization supplied."
+    },
+    {
+      "id": "infographic",
+      "name": "信息图/A+Content",
+      "keywords": [
+        "信息图",
+        "infographic",
+        "A+",
+        "详情页",
+        "卖点图",
+        "产品信息图",
+        "产品详情"
+      ],
+      "visual_recipe": "Large visible product evidence plus one short headline and at most two purposeful detail views.",
+      "source_sha256": "e93d0c1f4c6c3291324617502eeb557327d0789c1f44ba58fe0220a3307a032d",
+      "boundary": "Visual planning aid only; no facts, claims, model, platform policy or upload authorization supplied."
+    },
+    {
+      "id": "lifestyle-scene",
+      "name": "场景化生活图",
+      "keywords": [
+        "场景图",
+        "生活图",
+        "lifestyle",
+        "使用场景",
+        "生活场景",
+        "场景化",
+        "lifestyle photography"
+      ],
+      "visual_recipe": "Specific place, time and activity. Product remains the focus; make lighting and contact physically coherent.",
+      "source_sha256": "1bb92d31702f81f64eed4be1b986cd03bb95962da3d4ce9abfcf1d34ace9789c",
+      "boundary": "Visual planning aid only; no facts, claims, model, platform policy or upload authorization supplied."
+    },
+    {
+      "id": "livestream",
+      "name": "电商直播间场景",
+      "keywords": [
+        "直播",
+        "livestream",
+        "直播间",
+        "电商直播",
+        "直播截图",
+        "抖音直播",
+        "带货"
+      ],
+      "visual_recipe": "A product-focused streaming backdrop or still, within the requested scope; do not invent viewers, sales counters or reviews.",
+      "source_sha256": "f427095900ad128ba522c02c4dc79779e597e88e1d5cb7a417906a425d96cb8b",
+      "boundary": "Visual planning aid only; no facts, claims, model, platform policy or upload authorization supplied."
+    },
+    {
+      "id": "luxury-atmospherics",
+      "name": "奢华氛围渲染",
+      "keywords": [
+        "奢华",
+        "氛围",
+        "烟雾",
+        "高级感",
+        "luxury",
+        "atmospheric",
+        "梦幻",
+        "高端",
+        "premium",
+        "烟雾效果",
+        "金色"
+      ],
+      "visual_recipe": "Controlled contrast, tactile materials and restrained styling while keeping product colors and surface finish faithful.",
+      "source_sha256": "27e6f0fc1adc69bcfa36389590b414ac77c51da3ac5c44d65cc2c8e118b2d421",
+      "boundary": "Visual planning aid only; no facts, claims, model, platform policy or upload authorization supplied."
+    },
+    {
+      "id": "magazine-editorial",
+      "name": "杂志大片/封面",
+      "keywords": [
+        "杂志",
+        "封面",
+        "杂志大片",
+        "editorial",
+        "magazine cover",
+        "时尚大片",
+        "Vogue",
+        "时尚摄影",
+        "fashion editorial"
+      ],
+      "visual_recipe": "Editorial grid, confident type hierarchy and large photography; vary the spread by its buying question.",
+      "source_sha256": "7f2ad422cfd97e152f0d3e5d42b36ea136d1b034699ea43f4db2aa605c59cf71",
+      "boundary": "Visual planning aid only; no facts, claims, model, platform policy or upload authorization supplied."
+    },
+    {
+      "id": "model-showcase",
+      "name": "模特展示图",
+      "keywords": [
+        "模特",
+        "model",
+        "人物展示",
+        "模特图",
+        "真人展示",
+        "人物图"
+      ],
+      "visual_recipe": "Natural in-use pose and realistic scale, with product identity readable and major construction unobscured.",
+      "source_sha256": "283d7fb4cc23ed414b477dd19722abedd808de46b0a6ed8a9e6c2a8871ed047c",
+      "boundary": "Visual planning aid only; no facts, claims, model, platform policy or upload authorization supplied."
+    },
+    {
+      "id": "motion-gif",
+      "name": "产品动图（多格帧图合成 GIF/WebP 动效）",
+      "keywords": [
+        "动图",
+        "动效",
+        "GIF",
+        "gif",
+        "motion",
+        "动画",
+        "自动循环",
+        "主图视频",
+        "product motion"
+      ],
+      "visual_recipe": "Only when animation is requested; plan a bounded frame sequence without changing the physical product.",
+      "source_sha256": "27eaebcd0f27e9007d2d567867ac9773fe5b295af182933577bd7535e343624c",
+      "boundary": "Visual planning aid only; no facts, claims, model, platform policy or upload authorization supplied."
+    },
+    {
+      "id": "multi-angle-grid",
+      "name": "产品多角度网格",
+      "keywords": [
+        "多角度",
+        "网格",
+        "grid",
+        "多面",
+        "颜色展示",
+        "colorway",
+        "产品角度",
+        "catalog grid",
+        "产品目录"
+      ],
+      "visual_recipe": "Use real supplied angles; consistent photographic finish with uncropped cells. Do not invent unseen construction.",
+      "source_sha256": "f69f998561579acee84548bb188670e7b0642d9663f0ea0c0f9fe1b4046ae779",
+      "boundary": "Visual planning aid only; no facts, claims, model, platform policy or upload authorization supplied."
+    },
+    {
+      "id": "multi-product",
+      "name": "多产品套装/组合展示",
+      "keywords": [
+        "套装",
+        "组合",
+        "多产品",
+        "bundle",
+        "gift set",
+        "礼盒",
+        "系列展示"
+      ],
+      "visual_recipe": "Balanced layout of verified products or confirmed bundle components. Clearly distinguish separately sold props.",
+      "source_sha256": "348c1c292a27bd57a5b355c84fce67ddca79ce8bb499a4106ad9368ee560055c",
+      "boundary": "Visual planning aid only; no facts, claims, model, platform policy or upload authorization supplied."
+    },
+    {
+      "id": "packaging-unbox",
+      "name": "包装拆箱流程图（开箱步骤/层次展示）",
+      "keywords": [
+        "拆箱",
+        "开箱",
+        "unboxing",
+        "拆箱流程",
+        "开箱步骤",
+        "层次展示",
+        "包装层次",
+        "unboxing sequence"
+      ],
+      "visual_recipe": "Show only verified packaging and actual contents. Props and preparation layouts are explicitly illustrative.",
+      "source_sha256": "ff1baa22c82f8a247626022a2d5a92bbd50e4273e5cdafc02211bd0d3c49317f",
+      "boundary": "Visual planning aid only; no facts, claims, model, platform policy or upload authorization supplied."
+    },
+    {
+      "id": "packaging",
+      "name": "包装设计展示",
+      "keywords": [
+        "包装",
+        "packaging",
+        "礼盒",
+        "gift box",
+        "包装设计",
+        "unboxing",
+        "开箱"
+      ],
+      "visual_recipe": "Use approved packaging artwork, shape and print; do not fabricate seals, material claims or certifications.",
+      "source_sha256": "cdfa5c83b009ab995b11e7bd0256204b8188bfa1ff4589fb8fa8922a93b8ff70",
+      "boundary": "Visual planning aid only; no facts, claims, model, platform policy or upload authorization supplied."
+    },
+    {
+      "id": "poster-banner",
+      "name": "促销海报/Banner",
+      "keywords": [
+        "海报",
+        "poster",
+        "banner",
+        "促销",
+        "广告图",
+        "活动图",
+        "promotion",
+        "sale"
+      ],
+      "visual_recipe": "One clear approved campaign message, product focal point and legible copy zone at the requested banner ratio.",
+      "source_sha256": "3c894fbb5a3a42337f97312271cc8107e4db9b378bd6a686a34b23f59d03cc19",
+      "boundary": "Visual planning aid only; no facts, claims, model, platform policy or upload authorization supplied."
+    },
+    {
+      "id": "seasonal-campaign",
+      "name": "季节主题网格",
+      "keywords": [
+        "季节",
+        "四季",
+        "campaign",
+        "季节主题",
+        "seasonal",
+        "春夏秋冬",
+        "年度campaign",
+        "品牌campaign",
+        "季节变体"
+      ],
+      "visual_recipe": "Season-specific environment and mood with coherent illumination; retain product identity and confirmed campaign facts.",
+      "source_sha256": "4d7820d74273f19ce23d8891db3b1768a1c341db7a8cf326809a4864d389b72d",
+      "boundary": "Visual planning aid only; no facts, claims, model, platform policy or upload authorization supplied."
+    },
+    {
+      "id": "size-spec",
+      "name": "尺寸规格+使用步骤图",
+      "keywords": [
+        "尺寸",
+        "规格",
+        "尺寸图",
+        "使用步骤",
+        "规格图",
+        "dimension",
+        "how to use",
+        "使用指南"
+      ],
+      "visual_recipe": "Use only sourced measurements. Clearly identify endpoints; otherwise omit numeric labels.",
+      "source_sha256": "2707ebcf6e248aba79b2141cd4c08fa0a6dff63b982c29e755a22b38504664a8",
+      "boundary": "Visual planning aid only; no facts, claims, model, platform policy or upload authorization supplied."
+    },
+    {
+      "id": "social-media",
+      "name": "社交媒体素材",
+      "keywords": [
+        "社交媒体",
+        "小红书",
+        "instagram",
+        "tiktok",
+        "种草",
+        "社媒",
+        "social media"
+      ],
+      "visual_recipe": "Platform-appropriate visual hierarchy with one focal product and concise approved copy; no fabricated endorsements.",
+      "source_sha256": "ededd2758bdd2c3f863527fdb984a0e30f62071646b28680dd7c61d3c8faede3",
+      "boundary": "Visual planning aid only; no facts, claims, model, platform policy or upload authorization supplied."
+    },
+    {
+      "id": "sports-campaign",
+      "name": "运动/健身广告",
+      "keywords": [
+        "运动",
+        "健身",
+        "广告",
+        "sports",
+        "fitness",
+        "campaign",
+        "运动鞋",
+        "运动服",
+        "篮球",
+        "跑步",
+        "健身器材"
+      ],
+      "visual_recipe": "Credible activity, posture and product contact without implying unverified durability, performance or sponsorship.",
+      "source_sha256": "eafcd71d38f5684036ffb59df2fd74294b5edbfd6a028a57953b6d82bfdb1100",
+      "boundary": "Visual planning aid only; no facts, claims, model, platform policy or upload authorization supplied."
+    },
+    {
+      "id": "storefront",
+      "name": "店铺门面/空间摄影",
+      "keywords": [
+        "店铺",
+        "门面",
+        "店面",
+        "storefront",
+        "空间摄影",
+        "室内设计",
+        "零售空间",
+        "咖啡店",
+        "实体店"
+      ],
+      "visual_recipe": "Present the authorized brand's actual spatial or merchandising concept without implying fictional stores are real locations.",
+      "source_sha256": "56cd74cc9c0160743169d9be93b2155181ab0cea19cd1cbab59132a00b5d17b9",
+      "boundary": "Visual planning aid only; no facts, claims, model, platform policy or upload authorization supplied."
+    },
+    {
+      "id": "transparent-cutout",
+      "name": "透明抠图（PNG/WebP 透明底产品提取）",
+      "keywords": [
+        "抠图",
+        "透明底",
+        "透明背景",
+        "去背景",
+        "cutout",
+        "transparent background",
+        "remove background",
+        "PNG 抠图"
+      ],
+      "visual_recipe": "Preserve product edges and real alpha. Prefer deterministic processing for a clean existing silhouette.",
+      "source_sha256": "c8706571fbec95d8801ad03fec3af283b1f3037a640b09710e657289ee07e4c5",
+      "boundary": "Visual planning aid only; no facts, claims, model, platform policy or upload authorization supplied."
+    },
+    {
+      "id": "try-on-virtual",
+      "name": "虚拟试穿/产品融入场景",
+      "keywords": [
+        "试穿",
+        "融入",
+        "虚拟试穿",
+        "try on",
+        "场景融合",
+        "产品融入",
+        "product placement"
+      ],
+      "visual_recipe": "Preserve garment/accessory geometry, prints, color and texture across realistic body contact and fit.",
+      "source_sha256": "b1ba2965967c0a5479669121d73601f220a89af12db4ba79a9ca9f85abf70665",
+      "boundary": "Visual planning aid only; no facts, claims, model, platform policy or upload authorization supplied."
+    },
+    {
+      "id": "ugc-style",
+      "name": "UGC风格/买家秀",
+      "keywords": [
+        "UGC",
+        "买家秀",
+        "用户生成",
+        "真实用户",
+        "user generated",
+        "GRWM",
+        "真实感"
+      ],
+      "visual_recipe": "Casual, credible framing with a clear product; label the asset accurately and never fabricate customer testimony.",
+      "source_sha256": "5cc473f8ee4f9e73bc840663a8b23dec59f1915ac11ec86e87d490ece40cce57",
+      "boundary": "Visual planning aid only; no facts, claims, model, platform policy or upload authorization supplied."
+    }
+  ]
+}

@@ -8,7 +8,7 @@ from uuid import uuid4
 
 from dotenv import dotenv_values
 from fastapi import HTTPException
-from sqlalchemy import String, Text, Float, Boolean, create_engine, select, text
+from sqlalchemy import String, Text, Float, Boolean, Index, UniqueConstraint, create_engine, select, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, Session
 
@@ -107,6 +107,7 @@ class ImageJob(OwnedRecord, Base):
     task_index: Mapped[int] = mapped_column(default=0, server_default='0')
     execution_profile: Mapped[str] = mapped_column(Text, default='{}', server_default='{}')
     execution_result: Mapped[str] = mapped_column(Text, default='{}', server_default='{}')
+    agent_run_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
 
 
 class ImageConfiguration(Base):
@@ -120,6 +121,7 @@ class ImageConfiguration(Base):
     edit_job_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     updated_at: Mapped[str] = mapped_column(String(40))
     text_model_name: Mapped[str] = mapped_column(String(200), default='', server_default='')
+    vision_model_name: Mapped[str] = mapped_column(String(200), default='', server_default='')
     text_config_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
 
 
@@ -164,6 +166,99 @@ class SkillRevision(Base):
     revision: Mapped[int] = mapped_column(primary_key=True)
     content: Mapped[str] = mapped_column(Text)
     updated_at: Mapped[str] = mapped_column(String(40))
+
+
+class SkillPackage(Base):
+    __tablename__ = 'skill_packages'
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    name: Mapped[str] = mapped_column(String(200))
+    description: Mapped[str] = mapped_column(Text, default='')
+    source: Mapped[str] = mapped_column(String(16), default='imported')
+    owner_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    is_readonly: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text('true'))
+    current_version_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    created_at: Mapped[str] = mapped_column(String(40))
+    updated_at: Mapped[str] = mapped_column(String(40))
+    # Built-in names stay globally unique; personal packages are unique per owner.
+    __table_args__ = (
+        Index('uq_skill_packages_owner_name', 'owner_id', 'name', unique=True,
+              postgresql_where=text('owner_id IS NOT NULL'), sqlite_where=text('owner_id IS NOT NULL')),
+        Index('uq_skill_packages_builtin_name', 'name', unique=True,
+              postgresql_where=text("source = 'builtin'"), sqlite_where=text("source = 'builtin'")),
+    )
+
+
+class SkillVersion(Base):
+    __tablename__ = 'skill_versions'
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    skill_id: Mapped[str] = mapped_column(String(36), index=True)
+    version_label: Mapped[str] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(16), default='ready')
+    compile_level: Mapped[str] = mapped_column(String(16), default='core')
+    content_sha256: Mapped[str] = mapped_column(String(64))
+    compiled_sha256: Mapped[str] = mapped_column(String(64))
+    compiled_chars: Mapped[int] = mapped_column(default=0)
+    file_count: Mapped[int] = mapped_column(default=0)
+    total_bytes: Mapped[int] = mapped_column(default=0)
+    entry_path: Mapped[str] = mapped_column(String(500), default='SKILL.md')
+    created_at: Mapped[str] = mapped_column(String(40))
+    created_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    import_note: Mapped[str] = mapped_column(Text, default='')
+    __table_args__ = (UniqueConstraint('skill_id', 'version_label', name='uq_skill_versions_label'),)
+
+
+class SkillFile(Base):
+    __tablename__ = 'skill_files'
+    version_id: Mapped[str] = mapped_column(String(36), primary_key=True, index=True)
+    path: Mapped[str] = mapped_column(String(500), primary_key=True)
+    kind: Mapped[str] = mapped_column(String(24))
+    size: Mapped[int] = mapped_column(default=0)
+    sha256: Mapped[str] = mapped_column(String(64))
+    is_text: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text('false'))
+
+
+class AgentRun(OwnedRecord, Base):
+    __tablename__ = 'agent_runs'
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    skill_id: Mapped[str] = mapped_column(String(36))
+    skill_version_id: Mapped[str] = mapped_column(String(36))
+    config_id: Mapped[str] = mapped_column(String(36))
+    status: Mapped[str] = mapped_column(String(16), index=True)
+    goal: Mapped[str] = mapped_column(Text)
+    model_name: Mapped[str] = mapped_column(String(200), default='')
+    vision_model_name: Mapped[str] = mapped_column(String(200), default='')
+    steps_count: Mapped[int] = mapped_column(default=0)
+    image_calls: Mapped[int] = mapped_column(default=0)
+    max_steps: Mapped[int] = mapped_column(default=20)
+    max_images: Mapped[int] = mapped_column(default=6)
+    error: Mapped[str] = mapped_column(Text, default='')
+    summary: Mapped[str] = mapped_column(Text, default='')
+    created_at: Mapped[str] = mapped_column(String(40))
+    updated_at: Mapped[str] = mapped_column(String(40))
+    finished_at: Mapped[str | None] = mapped_column(String(40), nullable=True)
+
+
+class AgentStep(Base):
+    __tablename__ = 'agent_steps'
+    run_id: Mapped[str] = mapped_column(String(36), primary_key=True, index=True)
+    step_index: Mapped[int] = mapped_column(primary_key=True)
+    kind: Mapped[str] = mapped_column(String(16))
+    tool_name: Mapped[str] = mapped_column(String(64), default='')
+    arguments: Mapped[str] = mapped_column(Text, default='')
+    result: Mapped[str] = mapped_column(Text, default='')
+    created_at: Mapped[str] = mapped_column(String(40))
+
+
+class AgentArtifact(Base):
+    __tablename__ = 'agent_artifacts'
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    run_id: Mapped[str] = mapped_column(String(36), index=True)
+    kind: Mapped[str] = mapped_column(String(16))
+    name: Mapped[str] = mapped_column(String(200), default='')
+    path: Mapped[str] = mapped_column(String(500))
+    sha256: Mapped[str] = mapped_column(String(64))
+    size: Mapped[int] = mapped_column(default=0)
+    created_at: Mapped[str] = mapped_column(String(40))
 
 
 class CreativeCase(OwnedRecord, Base):
@@ -256,6 +351,9 @@ def storage_status(engine: Engine | None) -> dict:
             connection.execute(select(ProductAsset.id).limit(0))
             connection.execute(select(CreativeSkill.id).limit(0))
             connection.execute(select(SkillRevision.skill_id).limit(0))
+            connection.execute(select(SkillPackage.id).limit(0))
+            connection.execute(select(SkillVersion.id).limit(0))
+            connection.execute(select(AgentRun.id).limit(0))
         return {"storage": "postgresql", "status": "ready", "message": "数据库连接、模型配置与生图任务表检查通过"}
     except Exception:
         return {"storage": "postgresql", "status": "unavailable", "message": "数据库未连接或表结构未就绪，请检查数据库并运行迁移。"}

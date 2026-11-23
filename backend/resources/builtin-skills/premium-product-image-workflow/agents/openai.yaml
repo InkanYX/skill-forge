@@ -1,0 +1,4 @@
+interface:
+  display_name: "高保真电商商品图工作流"
+  short_description: "整合商品保真、视觉文案、场景模板、A+制作、逐图质检与项目续做"
+  default_prompt: "使用 $premium-product-image-workflow，沿用已有商品事实与项目资料，完成本次商品图任务。"
