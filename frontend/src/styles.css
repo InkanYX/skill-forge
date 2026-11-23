@@ -142,6 +142,8 @@ h3 { font-size: 17px; font-weight: 600; margin: 19px 0 10px; }
 .form-field input:disabled { background: #f6f8fc; color: #64748b; }
 .form-field input::placeholder { color: #8090a6; }
 .form-field small { display: block; margin-top: 9px; color: #6f8097; font-size: 13px; line-height: 1.8; }
+.form-field input[readonly] { background: #f4f7fb; color: #52657e; cursor: default; }
+.form-field label > .field-source { display: inline-block; margin-left: 8px; padding: 2px 8px; border-radius: 999px; background: #e9f4ec; color: #356b4c; font-size: 11.5px; font-weight: 500; vertical-align: 1px; }
 .custom-image-size { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 10px; align-items: end; margin-top: 12px; }
 .custom-image-size > span { padding-bottom: 13px; color: #6f8097; }
 .custom-image-size label { font-size: 13px; }

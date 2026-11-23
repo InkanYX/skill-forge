@@ -179,8 +179,14 @@ def create_jobs(engine, directory, config_id, model_name, prompt, size, request_
         if template_request:
             prompt, snapshot = render_template(session, template_request, prompt)
         if product_snapshot:
-            facts = {key: product_snapshot[key] for key in ('sku', 'name', 'category', 'dimensions', 'color', 'facts', 'notes')}
-            prompt += '\n\n产品资料（只使用已提供信息，不推测缺失参数）：\n' + json.dumps(facts, ensure_ascii=False)
+            facts = {
+                key: product_snapshot[key]
+                for key in ('sku', 'name', 'category', 'dimensions', 'color', 'facts', 'notes')
+                if str(product_snapshot[key] or '').strip()
+                and str(product_snapshot[key]).strip() not in prompt
+            }
+            if facts:
+                prompt += '\n\n产品资料（只使用已提供信息，不推测缺失参数）：\n' + json.dumps(facts, ensure_ascii=False)
         if len(prompt) > 32000:
             raise HTTPException(422, '合并后的创作要求过长，请精简模板或产品资料。')
         plans = [{'prompt': prompt, 'size': size, 'shot_name': set_meta['shot_name'], 'shot_index': set_meta['shot_index']} for _ in range(count)]

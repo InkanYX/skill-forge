@@ -6,8 +6,12 @@ export interface Product {
 }
 export interface ProductAsset { id: string; product_id: string; name: string; kind: string; image_url: string }
 export interface ProductSnapshot extends Partial<Product> { asset?: ProductAsset }
+type ProductVariableField = 'name' | 'sku' | 'color' | 'dimensions' | 'facts';
+export const PRODUCT_VARIABLE_FIELDS: Record<string, ProductVariableField> = {
+  产品名称: 'name', 产品: 'name', SKU: 'sku', 颜色: 'color', 尺寸: 'dimensions', 产品尺寸: 'dimensions', 材质与结构: 'facts',
+};
 export function productValues(product?: Product): Record<string, string> {
-  return { 产品名称: product?.name || '', 产品: product?.name || '', SKU: product?.sku || '', 颜色: product?.color || '', 尺寸: product?.dimensions || '', 产品尺寸: product?.dimensions || '', 材质与结构: product?.facts || '' };
+  return Object.fromEntries(Object.entries(PRODUCT_VARIABLE_FIELDS).map(([key, field]) => [key, product?.[field] || '']));
 }
 export async function uploadAsset(productId: string, file: File, kind: string): Promise<ProductAsset> {
   const body = new FormData(); body.set('asset_id', crypto.randomUUID()); body.set('image', file); body.set('kind', kind);

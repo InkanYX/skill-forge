@@ -76,14 +76,14 @@ def render_template(session, request, extra):
         raise HTTPException(409, "模板已更新，请重新选择模板后提交。")
     snapshot = template_view(row)
     if any(not values.get(key, '').strip() for key in snapshot['variables']):
-        raise HTTPException(422, "请填齐模板中的产品信息。")
+        raise HTTPException(422, "请填齐模板中的填写项。")
     def fill(text):
         return VARIABLE.sub(lambda match: values[match.group(1).strip()].strip(), text)
     parts = [fill(snapshot['prompt'])]
     if snapshot['skill'].strip():
         parts.append("制作方法（自然语言 Skill）：\n" + fill(snapshot['skill']))
     if snapshot['notes'].strip():
-        parts.append("注意事项：\n" + fill(snapshot['notes']))
+        parts.append("画面注意事项：\n" + fill(snapshot['notes']))
     if extra.strip():
         parts.append("本次补充要求：\n" + extra.strip())
     prompt = '\n\n'.join(parts)
