@@ -101,6 +101,11 @@ class ReadOnlySkills(FilesystemBackend):
                            'sha256': hashlib.sha256(content.encode()).hexdigest(),
                            'skill_id': source.get('skill_id')})
         self.contexts.append(f'\n<!-- {path} / offset={offset} / {method} -->\n{content}')
+        for document in source.get('required_context', []):
+            if document['content'] in content:
+                self.reads.append({'path': document['path'], 'offset': 0, 'chars': len(document['content']),
+                    'method': 'required_context', 'sha256': hashlib.sha256(document['content'].encode()).hexdigest(),
+                    'skill_id': source['skill_id']})
 
     def read(self, file_path, offset=0, limit=2000):
         if PurePosixPath(file_path).name.lower() == 'skill.md' and file_path not in self.entries and not any(
@@ -163,15 +168,33 @@ def mount_skills(engine, storage: Path, workspace: Path, snapshot: dict):
             if bundle_meta.is_file():
                 original = _read_capped(safe_join(safe_join(bundle, relative), version.entry_path))
             source_path = f'/bundles/{bundle_id}' + (f'/{relative}' if relative != '.' else '')
+            metadata = parse_frontmatter(original).get('metadata') or {}
+            if not isinstance(metadata, dict):
+                raise GenerationError('技能 metadata 必须为对象。')
+            required = metadata.get('required_references',
+                ['references/campaign-style.md'] if item['name'] == 'premium-product-image-workflow' else [])
+            if not isinstance(required, list) or len(required) > 8 or any(not isinstance(value, str) for value in required):
+                raise GenerationError('技能 required_references 必须为最多 8 个相对文档路径。')
+            required_context = []
+            for document_path in dict.fromkeys(required):
+                if PurePosixPath(document_path).suffix.lower() not in TEXT_SUFFIXES:
+                    raise GenerationError('技能必读资源必须是文本文件。')
+                document = _read_capped(safe_join(safe_join(workspace, source_path.lstrip('/')), document_path))
+                required_context.append({'path': source_path + '/' + document_path, 'content': document})
+            appendix = ''.join(f'\n\n## 已随入口完整加载的必读文档：{value["path"]}\n{value["content"]}' for value in required_context)
             alias = 'skill-' + item['skill_id']
             aliases[item['skill_id']] = alias
             entry = f'/skills/{alias}/SKILL.md'
             path = workspace / entry.lstrip('/')
             path.parent.mkdir(parents=True, exist_ok=True)
             header = yaml.safe_dump({'name': alias, 'description': f'{item["name"]}：{item.get("description") or parse_frontmatter(original).get("description", "")}'}, allow_unicode=True)
-            content = f'---\n{header}---\n\n原技能名称：{item["name"]}\n原技能目录：{source_path}\n所有参考文件相对于原技能目录定位；可用 ls、glob、grep 查找。\n\n{_body(original)}'
+            content = f'---\n{header}---\n\n原技能名称：{item["name"]}\n原技能目录：{source_path}\n所有参考文件相对于原技能目录定位；可用 ls、glob、grep 查找。{appendix}\n\n{_body(original)}'
             path.write_text(content, encoding='utf-8')
-            entries[entry] = {**item, 'alias': alias, 'source_root': source_path, 'source_entry': source_path + '/' + version.entry_path, 'content': content}
+            if appendix:
+                # Only the temporary mounted copy changes; archived skill versions stay immutable.
+                safe_join(workspace, (source_path + '/' + version.entry_path).lstrip('/')).write_text(original + appendix, encoding='utf-8')
+            entries[entry] = {**item, 'alias': alias, 'source_root': source_path, 'source_entry': source_path + '/' + version.entry_path,
+                              'content': content, 'required_context': required_context}
     return entries, aliases
 
 
@@ -207,10 +230,15 @@ def plan_with_skills(engine, storage, directory, snapshot, instructions, brief, 
                 raise GenerationError('指定技能未成功注入，未提交图片请求。')
             if not used_ids:
                 raise GenerationError('模型未读取任何制作技能，未提交图片请求。')
+            for item in entries.values():
+                if item['skill_id'] in used_ids and any(not any(
+                        row.get('path') == document['path'] and row.get('method') == 'required_context'
+                        for row in backend.reads) for document in item.get('required_context', [])):
+                    raise GenerationError('技能必读文档未完整加载，请完整读取技能入口后再策划。')
             final = result['messages'][-1].content
             if not isinstance(final, str):
                 raise GenerationError('技能策划未返回文本结果，未提交图片请求。')
-            used = [{key: value for key, value in item.items() if key not in ('content', 'alias', 'source_root', 'source_entry')}
+            used = [{key: value for key, value in item.items() if key not in ('content', 'alias', 'source_root', 'source_entry', 'required_context')}
                     for item in entries.values() if item['skill_id'] in used_ids]
             completed = True
             return final, {'used_skills': used, 'files': backend.reads, 'planning_method': 'deepagents'}
@@ -218,7 +246,7 @@ def plan_with_skills(engine, storage, directory, snapshot, instructions, brief, 
             raise GenerationError('技能读取达到步数上限，未提交图片请求。') from None
         finally:
             trace = {'engine': 'deepagents', 'files': backend.reads,
-                     'used_skills': [{k: v for k, v in item.items() if k not in ('content', 'alias', 'source_root', 'source_entry')}
+                     'used_skills': [{k: v for k, v in item.items() if k not in ('content', 'alias', 'source_root', 'source_entry', 'required_context')}
                                      for item in entries.values() if any(r.get('skill_id') == item['skill_id'] for r in backend.reads)],
                      'completed': completed}
             (directory / 'skill-read-log.json').write_text(json.dumps(trace, ensure_ascii=False, indent=2), encoding='utf-8')

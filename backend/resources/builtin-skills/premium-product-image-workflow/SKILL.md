@@ -2,7 +2,9 @@
 name: premium-product-image-workflow
 description: "Plan, generate, edit and review faithful ecommerce product images, complete Listing sets and Amazon A+ content. Includes evidence-backed copy, visual direction, scene templates and project resume. Use for 商品图、主图、套图、A+、手机端适配、换风格、局部修改、继续出图 and public competitor visual research. Not for PPC optimization or unrelated image art."
 metadata:
-  version: "2.5.0"
+  version: "2.5.1"
+  required_references:
+    - references/campaign-style.md
 ---
 
 # 高保真商品图工作流 · 整合版
@@ -10,6 +12,9 @@ metadata:
 将商品资料转为可执行图需、完整成品与可恢复项目。保留用户原有的 SKU 保真与质检要求，吸收四个电商仓库的文案策略、模板、图型组织和工具思路。来源与改编边界见 [sources.md](references/sources.md)。内部模块独立运行，不要求同时加载原四套技能。
 
 ## 制作基准
+
+- 每次使用本技能，先完整读取 [套图风格](references/campaign-style.md)，包括逐张独立编写提示词时；不要仅凭入口摘要或提示词示例决定视觉方向。支持 required_references 的运行器应随入口注入该文档并记录实际加载；其他运行器需主动读取。单次任务内已完整加载时无需重复读取。
+- 套图统一品牌语言与修图质感，各图依据职责变化构图和信息组织；不默认采用示例的配色、暖白底、顶部标题带或等分卡片。用户已确认的方向优先。
 
 - 优先级：同一可售 SKU → 结构与比例 → 颜色/材质外观/包含物 → 构图 → 已确认卖点 → 光影 → 装饰。结构变体标记为改款，不冒充原 SKU。
 - A 级可见外观、已确认 B 级资料可以使用；按用户偏好主动从照片推测材质与可能性能，读 [照片推测卖点](references/photo-inferred-selling-points.md)，提出候选与展示方案，注明依据和置信度。推测与确认事实分开；不凭照片编造尺寸、材质牌号、性能等级、认证、包含物、安装时间或服务承诺。

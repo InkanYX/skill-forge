@@ -93,6 +93,8 @@ Do not deliver a blank base, an unlettered scene, or an image awaiting later typ
 
 以下是模板示例，不是历史调用记录。产品结构仅在当前身份参考确认时适用，所有文案和版式需匹配实际制作卡；参考 2 只有实际提供且允许使用时才能写入调用。
 
+示例仅展示提示词结构，不提供默认色板或通用版式；每张必须先读取 campaign-style.md，并使用已确认的视觉方向和本张制作卡。不得把示例的信息区位置、背景或配色批量复制到整套。
+
 ```text
 Task and selling objective:
 Create one finished Amazon US lifestyle listing image, including the final English
@@ -128,7 +130,8 @@ Reading order: headline, gazebo, supporting line, small bottom disclaimer.
 Maintain approximately 5 percent outer safe margins. Do not cover the roof or posts.
 
 Art direction and physical realism:
-Use a warm outdoor editorial design with ivory, charcoal and muted sage accents.
+Use the confirmed campaign art direction, with colors drawn from the dusk garden
+and the approved brand palette. Do not impose a uniform colored page background.
 Balance cool blue-hour surroundings with soft warm ambient illumination.
 Make roof reflections, frame highlights, ground contact shadows and distant water
 reflections agree with the same dusk lighting. Retain visible fabric folds and realistic
@@ -150,10 +153,11 @@ Set the two-line headline in an elegant bold serif with an appearance similar to
 Bold, dark charcoal, about twice the supporting text height. Do not claim exact font
 reproduction. Set the supporting line in a clean regular sans serif, no more than three
 short lines, left aligned below the headline.
-Use a restrained warm-ivory information panel confined to the upper-left area, with
-generous padding and no heavy outline. Keep text clear of the roof silhouette.
+Place the information directly in a calm upper-left area of the scene with generous
+breathing room and readable contrast. Add a subtle local gradient only if needed;
+do not insert a default solid-color panel. Keep text clear of the roof silhouette.
 Put the readable disclaimer in a narrow dark translucent strip along the bottom, using
-ivory sans serif type. Keep it inside the safe margin and away from the feet.
+high-contrast light sans serif type. Keep it inside the safe margin and away from the feet.
 Do not add decorative icons, inset cards or extra badges to this lifestyle image.
 
 Strict exclusions:

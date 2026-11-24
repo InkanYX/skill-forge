@@ -39,6 +39,56 @@ def test_standard_yaml_and_bom_are_supported_without_silent_corruption():
         parse_frontmatter('---\nname: [broken\n---\n正文')
 
 
+@pytest.mark.parametrize('automatic', [False, True])
+def test_required_reference_is_injected_and_audited_without_model_request(setup, tmp_path, automatic):
+    engine, directory = setup
+    marker = 'REQUIRED-STYLE-729: vary camera and layout, preserve product identity.'
+    data = archive({'visual/SKILL.md': '---\nname: required-style-test\ndescription: 商品图风格\nmetadata:\n  required_references:\n    - references/campaign-style.md\n---\n按主题设计。',
+                    'visual/references/campaign-style.md': marker})
+    with TestClient(create_app(directory, db_url=str(engine.url))) as client:
+        preview = import_preview(client, data)
+        response = client.post('/api/skill-packages/import/confirm', json={
+            'upload_id': preview['upload_id'], 'selections': [{'name': 'required-style-test'}]})
+        assert response.status_code == 200, response.text
+        item = response.json()[0]
+    snapshot = snapshot_for(engine, directory, None, '设计商品图', selection={
+        'mode': 'manual', 'skills': [{'skill_id': item['id']}], 'allow_auto': False})
+    if automatic: snapshot['pinned'] = []
+    calls = []
+    def provider(messages, tools):
+        calls.append(messages)
+        text = json.dumps(messages, ensure_ascii=False)
+        if automatic and len(calls) == 1:
+            return {'tool_calls': [{'id': 'entry', 'type': 'function', 'function': {'name': 'read_file',
+                'arguments': json.dumps({'file_path': f'/skills/skill-{item["id"]}/SKILL.md'})}}]}
+        assert marker in text  # real model context, not just a claimed read in the log
+        return {'content': '{"status":"ready","prompt":"designed"}'}
+    _, trace = plan_with_skills(engine, directory, tmp_path / 'run', snapshot, '使用技能。', {}, provider)
+    reads = [row for row in trace['files'] if row.get('method') == 'required_context']
+    assert reads and reads[0]['path'].endswith('/references/campaign-style.md')
+    assert reads[0]['chars'] == len(marker) and reads[0]['skill_id'] == item['id']
+    assert len(calls) == (2 if automatic else 1)
+    root = version_root(directory, item['id'], item['version']['id'])
+    assert marker not in (root / 'raw' / 'SKILL.md').read_text(encoding='utf-8')
+    assert 'required_context' not in trace['used_skills'][0]
+
+
+@pytest.mark.parametrize('reference', ['references/missing.md', '../outside.md'])
+def test_missing_or_escaping_required_reference_stops_before_provider(setup, tmp_path, reference):
+    engine, directory = setup
+    data = archive({'visual/SKILL.md': f'---\nname: broken-required-style\nmetadata:\n  required_references:\n    - {reference}\n---\n按规范制作。'})
+    with TestClient(create_app(directory, db_url=str(engine.url))) as client:
+        preview = import_preview(client, data)
+        response = client.post('/api/skill-packages/import/confirm', json={
+            'upload_id': preview['upload_id'], 'selections': [{'name': 'broken-required-style'}]})
+        assert response.status_code == 200, response.text
+        item = response.json()[0]
+    snapshot = snapshot_for(engine, directory, None, '商品图', selection={'skill_id': item['id']})
+    with pytest.raises(GenerationError, match='技能入口或资源无法读取'):
+        plan_with_skills(engine, directory, tmp_path / 'run', snapshot, '使用技能。', {},
+                         lambda *args: pytest.fail('missing required document must stop before provider'))
+
+
 def test_sdk_reads_custom_skill_and_shared_resources_progressively(setup, tmp_path):
     engine, directory, item, snapshot = imported(setup)
     meta = json.loads((version_root(directory, item['id'], item['version']['id']) / 'bundle.json').read_text())
