@@ -11,6 +11,8 @@ import type { ProductSnapshot } from './productApi';
 export interface CreativeCase {
   can_edit?: boolean; owner_id?: string | null;
   id: string; job_id: string; title: string; experience: string; issues: string;
+  outcome: 'pending' | 'satisfied' | 'rework'; requested_change: string; revision: number;
+  product_id?: string | null; product_name?: string; product_locked?: boolean; updated_at?: string;
   image_url: string; prompt: string; model_name: string; template_snapshot: TemplateSnapshot; product_snapshot?: ProductSnapshot;
 }
 export async function creativeRequest<T>(path: string, body?: unknown, method = 'POST'): Promise<T> {

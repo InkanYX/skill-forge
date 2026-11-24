@@ -58,6 +58,12 @@ def process_standard_one(store, executor=execute_cli, preparer=None, reviewer=No
             reference = [reference] + [(directory / f'reference-{index}.png').read_bytes() for index in range(2, len(profile['reference_manifest']) + 1)]
         requirements = prompt
         apply_skill = bool(profile.get('skill_workflow')) and not profile.get('prepared_by_agent')
+        if not apply_skill and not profile.get('prepared_by_agent'):
+            experience = profile.get('drawing_experience', {}).get('direct', [])
+            if experience:
+                prompt += '\n\n人工确认的产品作图经验（仅适用本次用途，不是产品事实，本轮明确要求优先）：\n' + '\n'.join(item['guidance'] for item in experience)
+                with Session(store.engine) as session, session.begin():
+                    session.execute(update(ImageJob).where(ImageJob.id == identifier).values(prompt=prompt))
         if apply_skill:
             with Session(store.engine) as session, session.begin():
                 session.execute(update(ImageJob).where(ImageJob.id == identifier)

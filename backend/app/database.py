@@ -346,6 +346,21 @@ class CreativeCase(OwnedRecord, Base):
     experience: Mapped[str] = mapped_column(Text)
     issues: Mapped[str] = mapped_column(Text)
     updated_at: Mapped[str] = mapped_column(String(40))
+    outcome: Mapped[str] = mapped_column(String(16), default='pending')
+    requested_change: Mapped[str] = mapped_column(Text, default='')
+    product_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    revision: Mapped[int] = mapped_column(default=1)
+
+
+class ProductImageExperience(OwnedRecord, Base):
+    __tablename__ = 'product_image_experiences'
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    product_id: Mapped[str] = mapped_column(String(36), index=True)
+    content: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(16), default='candidate')
+    revision: Mapped[int] = mapped_column(default=1)
+    created_at: Mapped[str] = mapped_column(String(40))
+    updated_at: Mapped[str] = mapped_column(String(40))
 
 
 class DatabaseConfigStore(FileConfigStore):

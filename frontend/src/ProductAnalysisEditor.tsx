@@ -4,6 +4,7 @@ import { imageConfigRequest, type ImageConfiguration } from './imageConfigApi';
 import { projectRequest, type Project } from './creationProjectApi';
 import { useCreationProject, uploadProjectMaterials, useUnsavedChanges } from './useCreationProject';
 import { ProjectFeedback, ProjectMaterials, ProjectLog, ProjectHistory } from './ProjectParts';
+import ProductExperience from './ProductExperience';
 
 export default function ProductAnalysisEditor({id}:{id?:string}){
   const state=useCreationProject(id||'');const {project}=state;const skill=useCreationSkill();
@@ -56,7 +57,7 @@ export default function ProductAnalysisEditor({id}:{id?:string}){
         {(doc||analysisDirty)&&<fieldset disabled={locked}>{([{key:'facts',label:'产品事实与来源'},{key:'selling_points',label:'候选卖点与依据'},{key:'questions',label:'待确认问题'}] as const).map(field=><label key={field.key}>{field.label}<textarea rows={field.key==='questions'?3:7} value={analysis[field.key]} onChange={e=>{setAnalysis(previous=>({...previous,[field.key]:e.target.value}));setAnalysisDirty(true);}}/></label>)}<div className="guided-actions"><button type="button" className="button-secondary" disabled={!analysisDirty} onClick={()=>void saveAnalysis(false)}>保存修改</button><button type="button" className="button-primary" disabled={infoDirty||!analysis.facts.trim()||!analysis.selling_points.trim()} onClick={()=>void saveAnalysis(true)}>确认产品卖点</button></div></fieldset>}
         {doc?.confirmed_at&&!analysisDirty&&!infoDirty&&<a className="button-primary" href={'#/planning?new=1&product='+project.id}>为此产品新建策划方案 →</a>}
         {!doc&&!analysisDirty&&<details><summary>手动录入已确认的产品事实和卖点</summary><button type="button" disabled={locked} onClick={()=>setAnalysisDirty(true)}>开始填写</button></details>}
-      </section><ProjectLog project={project} stages={['analysis']}/><ProjectHistory project={project} stages={['analysis']}/>
+      </section><ProductExperience productId={project.id} readOnly={project.can_edit===false}/><ProjectLog project={project} stages={['analysis']}/><ProjectHistory project={project} stages={['analysis']}/>
     </>}
   </div>;
 }

@@ -6,10 +6,11 @@ from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
+from typing import Literal
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-from app.database import CreativeTemplate, CreativeCase, ImageJob
+from app.database import CreativeTemplate, CreativeCase, ImageJob, CreationProject
 from app.skills import resolve_skill
 from app.image_sizes import ImageSize
 
@@ -39,15 +40,25 @@ class TemplateInput(BaseModel):
 class CaseInput(BaseModel):
     job_id: UUID
     title: str = Field(min_length=1, max_length=120)
-    experience: str = Field(min_length=1, max_length=4000)
+    experience: str = Field(default='', max_length=4000)
     issues: str = Field(default="", max_length=4000)
+    outcome: Literal['pending', 'satisfied', 'rework'] = 'pending'
+    requested_change: str = Field(default='', max_length=4000)
+    product_id: UUID | None = None
+    revision: int | None = Field(default=None, ge=0)
 
-    @field_validator("title", "experience")
+    @field_validator("title")
     @classmethod
     def nonblank(cls, value):
         if not value.strip():
             raise ValueError("请填写标题和有效经验。")
         return value.strip()
+
+    @model_validator(mode='after')
+    def meaningful(self):
+        if not any(value.strip() for value in (self.experience, self.issues, self.requested_change)):
+            raise ValueError('请至少填写一项有效做法、问题或修改要求。')
+        return self
 
 
 def timestamp():
@@ -135,15 +146,23 @@ def build_creative_router(engine):
     def update_template(identifier: UUID, data: TemplateInput):
         return save(data, identifier)
 
-    def case_view(row, job):
-        return {**owner_view(row), "id": row.id, "job_id": row.job_id, "title": row.title, "experience": row.experience, "issues": row.issues, "updated_at": row.updated_at, "image_url": f"/api/image-jobs/{row.job_id}/image", "prompt": job.prompt, "model_name": job.model_name, "product_snapshot": json.loads(job.product_snapshot), "template_snapshot": json.loads(job.template_snapshot)}
+    def case_view(row, job, session):
+        from app.product_experience import job_product
+        product_id = job_product(session, job) or row.product_id
+        product = session.get(CreationProject, product_id) if product_id else None
+        review = json.loads(job.execution_result or '{}').get('review', {})
+        return {**owner_view(job), "id": row.id, "job_id": row.job_id, "title": row.title, "experience": row.experience, "issues": row.issues or review.get('notes', ''),
+                'outcome': row.outcome if row.outcome != 'pending' else {'passed': 'satisfied', 'rework': 'rework'}.get(review.get('status'), 'pending'),
+                'requested_change': row.requested_change, 'product_id': product_id, 'product_name': product.title if product else '',
+                'product_locked': bool(job_product(session, job)),
+                'revision': row.revision, 'updated_at': row.updated_at, "image_url": f"/api/image-jobs/{row.job_id}/image", "prompt": job.prompt, "model_name": job.model_name, "product_snapshot": json.loads(job.product_snapshot), "template_snapshot": json.loads(job.template_snapshot)}
 
     @router.get('/cases')
     def list_cases():
         require_db()
         with Session(engine) as session:
             rows = session.execute(select(CreativeCase, ImageJob).join(ImageJob, ImageJob.id == CreativeCase.job_id).order_by(CreativeCase.updated_at.desc()))
-            return [case_view(row, job) for row, job in rows]
+            return [case_view(row, job, session) for row, job in rows]
 
     @router.post('/cases')
     def save_case(data: CaseInput):
@@ -154,19 +173,46 @@ def build_creative_router(engine):
                 raise HTTPException(422, "只能为已完成的图片记录经验。")
             require_edit(job)
             row = session.scalar(select(CreativeCase).where(CreativeCase.job_id == job.id))
+            from app.product_experience import job_product
+            inferred_product = job_product(session, job)
+            if data.product_id and inferred_product and str(data.product_id) != inferred_product:
+                raise HTTPException(409, '这张图片已关联策划产品，不能改为其他产品。')
+            product_id = inferred_product or (str(data.product_id) if data.product_id else None)
+            if product_id:
+                parent = session.get(CreationProject, product_id)
+                if not parent or parent.kind != 'product': raise HTTPException(422, '请选择有效产品。')
             if row is None:
-                row = CreativeCase(id=str(uuid4()), job_id=job.id)
+                if data.revision: raise HTTPException(409, '反馈不存在，请重新读取。')
+                row = CreativeCase(id=str(uuid4()), job_id=job.id, revision=1)
                 session.add(row)
+            else:
+                if data.revision is not None and data.revision != row.revision: raise HTTPException(409, '反馈已更新，请重新读取后保存。')
+                row.revision += 1
             row.title, row.experience, row.issues, row.updated_at = data.title, data.experience, data.issues, timestamp()
-            return case_view(row, job)
+            row.outcome, row.requested_change, row.product_id = data.outcome, data.requested_change, product_id
+            result = json.loads(job.execution_result or '{}')
+            result['review'] = {'status': {'pending': 'pending', 'satisfied': 'passed', 'rework': 'rework'}[data.outcome],
+                                'notes': '\n'.join(filter(None, [data.issues, data.requested_change])), 'updated_at': row.updated_at}
+            job.execution_result = json.dumps(result, ensure_ascii=False)
+            session.flush()
+            return case_view(row, job, session)
 
     @router.get('/cases/{job_id}')
-    def get_artwork_note(job_id: UUID):
+    def get_artwork_note(job_id: UUID, feedback: bool = False):
         require_db()
         with Session(engine) as session:
             job = session.get(ImageJob, str(job_id))
             if job is None:
                 raise HTTPException(404, '作品不存在。')
             row = session.scalar(select(CreativeCase).where(CreativeCase.job_id == job.id))
-            return case_view(row, job) if row else None
+            if row: return case_view(row, job, session)
+            if not feedback: return None
+            from app.product_experience import job_product
+            product_id = job_product(session, job)
+            product = session.get(CreationProject, product_id) if product_id else None
+            review = json.loads(job.execution_result or '{}').get('review', {})
+            return {**owner_view(job), 'id': '', 'job_id': job.id, 'title': '', 'experience': '',
+                    'issues': review.get('notes', ''), 'requested_change': '', 'revision': 0,
+                    'outcome': {'passed': 'satisfied', 'rework': 'rework'}.get(review.get('status'), 'pending'),
+                    'product_id': product_id, 'product_name': product.title if product else '', 'product_locked': bool(product_id)}
     return router

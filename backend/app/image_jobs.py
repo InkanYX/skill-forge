@@ -152,6 +152,8 @@ def create_jobs(engine, directory, config_id, model_name, prompt, size, request_
         inputs.append({'source_job_id': source_job_id})
     if standard_config and standard_config.get('skill_choice'):
         inputs.append({'skill': standard_config['skill_choice']})
+    if standard_config and standard_config.get('experience_product_id'):
+        inputs.append({'experience_product_id': standard_config['experience_product_id']})
     fingerprint = hashlib.sha256(json.dumps(inputs, ensure_ascii=False).encode()).hexdigest()
     request_ids = [request_id] + [str(uuid5(UUID(request_id), f"image-{index}")) for index in range(1, count)]
     with Session(engine) as session:
@@ -334,6 +336,21 @@ def create_jobs(engine, directory, config_id, model_name, prompt, size, request_
             row.edit_instruction = edit_instruction
             row.set_id, row.set_name = set_meta['set_id'], set_meta['set_name']
             row.shot_name, row.shot_index = plan['shot_name'], plan['shot_index']
+            if standard_config and not standard_config.get('prepared_by_agent'):
+                from app.product_experience import job_product, matching_experience
+                from app.database import CreationProject, CreativeCase
+                profile = json.loads(row.execution_profile)
+                product_id = profile.get('experience_product_id')
+                if source:
+                    note = session.scalar(select(CreativeCase).where(CreativeCase.job_id == source.id))
+                    product_id = job_product(session, source) or (note.product_id if note else None) or product_id
+                product_id = product_id or job_product(session, row)
+                if product_id:
+                    parent = session.get(CreationProject, product_id)
+                    if not parent or parent.kind != 'product': raise HTTPException(422, '关联产品不存在。')
+                    profile['experience_product_id'] = product_id
+                    profile['drawing_experience'] = {'direct': matching_experience(session, product_id, {'purpose': prompt + '\n' + row.shot_name})}
+                row.execution_profile = json.dumps(profile, ensure_ascii=False)
             rows.append(row)
         try:
             session.commit()
@@ -548,7 +565,7 @@ def build_image_router(engine, directory: Path, image_configs=None):
         return create_jobs(engine, directory, str(config_id), model_name, prompt, size, str(request_id), content, 1, standard_config=standard_profile(request, config_id, skill))[0]
 
     @router.post("/batch", response_model=list[JobView], status_code=202)
-    def submit_batch(request: Request, config_id: Annotated[UUID, Form()], request_id: Annotated[UUID, Form()], prompt: Annotated[str, Form(max_length=8000)] = "", count: Annotated[int, Form(ge=1, le=8)] = 1, size: Annotated[ImageSize, Form()] = "default", reference: Annotated[UploadFile | None, File()] = None, template: Annotated[str, Form(max_length=240000)] = "", product: Annotated[str, Form(max_length=2000)] = "", source_job_id: Annotated[UUID | None, Form()] = None, model_name: Annotated[str, Form(max_length=200)] = "", skill: Annotated[str, Form(max_length=2000)] = ""):
+    def submit_batch(request: Request, config_id: Annotated[UUID, Form()], request_id: Annotated[UUID, Form()], prompt: Annotated[str, Form(max_length=8000)] = "", count: Annotated[int, Form(ge=1, le=8)] = 1, size: Annotated[ImageSize, Form()] = "default", reference: Annotated[UploadFile | None, File()] = None, template: Annotated[str, Form(max_length=240000)] = "", product: Annotated[str, Form(max_length=2000)] = "", source_job_id: Annotated[UUID | None, Form()] = None, model_name: Annotated[str, Form(max_length=200)] = "", skill: Annotated[str, Form(max_length=2000)] = "", experience_product_id: Annotated[UUID | None, Form()] = None):
         require_database()
         content = reference.file.read(MAX_IMAGE + 1) if reference else None
         # The requested model must belong to the saved provider configuration.
@@ -561,7 +578,11 @@ def build_image_router(engine, directory: Path, image_configs=None):
                 raise ValueError()
         except ValueError:
             raise HTTPException(422, "模板参数格式无效。") from None
-        return create_jobs(engine, directory, str(config_id), model_name, prompt, size, str(request_id), content, count, template_request, product_request, str(source_job_id) if source_job_id else None, standard_config=standard_profile(request, config_id, skill))
+        profile = standard_profile(request, config_id, skill)
+        if experience_product_id:
+            if profile is None: raise HTTPException(422, "关联产品经验需要使用当前模型连接。")
+            profile["experience_product_id"] = str(experience_product_id)
+        return create_jobs(engine, directory, str(config_id), model_name, prompt, size, str(request_id), content, count, template_request, product_request, str(source_job_id) if source_job_id else None, standard_config=profile)
 
     @router.get("/{job_id}", response_model=JobView)
     def get_job(job_id: UUID):

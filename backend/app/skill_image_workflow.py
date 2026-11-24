@@ -52,6 +52,9 @@ def prepare(store, owner, profile: dict, directory: Path, prompt: str, reference
     # Lazy import keeps the image queue and agent tools on the same adapters.
     from app.agent_runtime import _chat, _vision, AgentError
     snapshot = profile['skill_workflow']
+    experiences = profile.get('drawing_experience', {}).get('direct', [])
+    if experiences:
+        prompt += '\n\n人工确认的产品作图经验（仅适用于本次用途，不是产品事实，不覆盖本轮明确要求）：\n' + '\n'.join(item['guidance'] for item in experiences)
     try:
         base_url, key, model = store.resolve_text(owner)
     except HTTPException as error:

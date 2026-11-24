@@ -73,7 +73,7 @@ export default function ArtworkLibrary() {
   function changeFilter<K extends keyof RecordFilters>(key: K, value: RecordFilters[K]) { setFilters(previous => ({ ...previous, [key]: value })); }
   const filtersChanged = JSON.stringify(filters) !== JSON.stringify(appliedFilters);
   const hasCriteria = JSON.stringify(appliedFilters) !== JSON.stringify(emptyFilters());
-  const appliedSummary = [labels[appliedFilters.status], appliedFilters.productId && (products.find(item => item.id === appliedFilters.productId)?.sku || '指定产品'), appliedFilters.templateId && (templates.find(item => item.id === appliedFilters.templateId)?.name || '指定模板'), appliedFilters.query && `关键词“${appliedFilters.query}”`, appliedFilters.favoriteOnly && '仅收藏', appliedFilters.notesOnly && '有经验备注'].filter(Boolean).join(' · ');
+  const appliedSummary = [labels[appliedFilters.status], appliedFilters.productId && (products.find(item => item.id === appliedFilters.productId)?.sku || '指定产品'), appliedFilters.templateId && (templates.find(item => item.id === appliedFilters.templateId)?.name || '指定模板'), appliedFilters.query && `关键词“${appliedFilters.query}”`, appliedFilters.favoriteOnly && '仅收藏', appliedFilters.notesOnly && '有图片反馈'].filter(Boolean).join(' · ');
   const pages = Math.max(1, Math.ceil((result?.total || 0) / 8));
   function togglePick(ids: string[]) {
     setPickError('');
@@ -97,7 +97,7 @@ export default function ArtworkLibrary() {
         <div className="form-field"><label htmlFor="artwork-template">创作模板</label><select id="artwork-template" value={filters.templateId} onChange={e => changeFilter('templateId', e.target.value)}><option value="">全部模板</option>{templates.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></div>
         <div className="form-field"><label htmlFor="artwork-status">任务状态</label><select id="artwork-status" value={filters.status} onChange={e => changeFilter('status', e.target.value)}>{Object.entries(labels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></div>
       </div>
-      <div className="record-filter-footer"><div className="artwork-organization"><label><input type="checkbox" checked={filters.favoriteOnly} onChange={e => changeFilter('favoriteOnly', e.target.checked)} />仅收藏</label><label><input type="checkbox" checked={filters.notesOnly} onChange={e => changeFilter('notesOnly', e.target.checked)} />有经验备注</label></div><div className="record-query-actions"><button type="button" className="button-secondary" onClick={reset}>重置</button><button type="submit" className="button-primary" disabled={loading}>查询</button></div></div>
+      <div className="record-filter-footer"><div className="artwork-organization"><label><input type="checkbox" checked={filters.favoriteOnly} onChange={e => changeFilter('favoriteOnly', e.target.checked)} />仅收藏</label><label><input type="checkbox" checked={filters.notesOnly} onChange={e => changeFilter('notesOnly', e.target.checked)} />有图片反馈</label></div><div className="record-query-actions"><button type="button" className="button-secondary" onClick={reset}>重置</button><button type="submit" className="button-primary" disabled={loading}>查询</button></div></div>
       {filtersChanged && <p className="filter-pending" role="status">筛选条件已修改，点击“查询”后生效。</p>}
       {filterError && <p className="feedback feedback-warning">{filterError}</p>}
     </form>

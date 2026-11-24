@@ -1,5 +1,6 @@
 import { apiFetch } from './apiFetch';
 import type { ImageRecord } from './imageTaskApi';
+import type { DrawingExperience } from './ProductExperience';
 
 export type Stage = 'analysis' | 'brief' | 'prompts';
 export const stageNames: Record<Stage | 'materials' | 'images', string> = { materials: '产品资料', analysis: '产品卖点', brief: '整套图需', prompts: '图片提示词', images: '图片制作' };
@@ -12,6 +13,7 @@ export interface Project {
   id: string; title: string; revision: number; stage: Stage | 'images'; busy: boolean; created_at: string; updated_at: string;
   kind: 'product' | 'plan' | 'legacy'; source_product_id: string | null; analysis_confirmed: boolean; can_edit: boolean;
   legacy_product_id?: string | null;
+  drawing_experience?: Record<string, DrawingExperience[]>;
   source?: { product_id: string; title: string; document_id: string; version: number }; source_updated?: boolean;
   settings: { goal: string; style: string; image_count: number; planning_model: string; image_model: string; market: string; language: string; audience: string; selected_selling_points: string; sku?: string };
   skill: Record<string, unknown>; documents: Record<Stage, ProjectDocument | null>;

@@ -240,6 +240,7 @@ def project_view(session, row, detail=True):
     if principal.get(): result['can_edit'] = row.owner_id == principal.get()['id']
     result['source'] = data.get('source')
     result['legacy_product_id'] = data.get('legacy_product_id')
+    result['drawing_experience'] = data.get('drawing_experience', {})
     if row.source_product_id:
         source = session.get(CreationProject, row.source_product_id)
         latest = json.loads(source.content).get('active', {}).get('analysis') if source else None
@@ -516,6 +517,11 @@ def build_creation_router(store):
             payload['conversation'] = data.get('messages', [])[-12:]
             payload['settings'].update({key: data.get(key, '') for key in ('market', 'language', 'audience', 'selected_selling_points')})
             payload['template'] = data.get('template')
+            from app.product_experience import matching_experience
+            if row.source_product_id and stage in ('brief', 'prompts'):
+                context = {**data, 'purpose': row.title + '\n' + data.get('goal', '')}
+                data.setdefault('drawing_experience', {})[stage] = matching_experience(session, row.source_product_id, context)
+            payload['drawing_experience'] = data.get('drawing_experience', {})
             if stage == 'images':
                 ids = value.shot_ids
                 valid = {item['shot_id'] for item in previous['prompts']['prompts']}
@@ -561,7 +567,9 @@ def run_planning(store, execution_id, project_id, payload, stage):
     key = store.key(profile['id'], profile['revision'])
     if not key: raise GenerationError('运行时密钥已失效，请重新填写后提交。')
     brief = {**{k: payload[k] for k in ('settings', 'previous', 'instruction', 'current_draft', 'materials', 'conversation')},
-        'stage': stage, 'template': payload.get('template'), 'output_schema': SCHEMAS[stage].model_json_schema()}
+        'stage': stage, 'template': payload.get('template'), 'output_schema': SCHEMAS[stage].model_json_schema(),
+        'product_drawing_experience': payload.get('drawing_experience', {}).get(stage, []),
+        'experience_policy': '这些是人工确认的历史作图建议，不是产品事实。只用于本次适用场景，不能覆盖已确认事实、图需和本轮明确要求。'}
     try:
         reply, trace = plan_with_skills(store.engine, store.directory, directory, payload['skill_snapshot'], INSTRUCTIONS, brief,
             lambda messages, bound_tools: _chat(profile['base_url'], key, profile['model'], messages, bound_tools, parameters=profile['parameters']), extra_tools=tools)
@@ -587,7 +595,8 @@ def run_planning(store, execution_id, project_id, payload, stage):
 def submit_images(store, project_id, execution_id, owner, payload):
     profile = payload['profile']
     profile.update(prepared_by_agent=True, preserve_prompt=True, creation_project_id=project_id,
-        source_documents=payload['source_documents'], skill_workflow=payload['skill_snapshot'])
+        source_documents=payload['source_documents'], skill_workflow=payload['skill_snapshot'],
+        drawing_experience=payload.get('drawing_experience', {}))
     with Session(store.engine) as session:
         source = session.scalar(select(CreationExecution).where(CreationExecution.project_id == project_id, CreationExecution.stage == 'prompts', CreationExecution.status == 'succeeded').order_by(CreationExecution.created_at.desc()).limit(1))
         profile['skill_execution'] = json.loads(source.output).get('trace', {}) if source else {'planning_method': 'manual', 'used_skills': [], 'files': []}

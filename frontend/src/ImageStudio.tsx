@@ -7,6 +7,7 @@ import TemplateVariableField from './TemplateVariableField';
 import ImageSizePicker from './ImageSizePicker';
 import TaskResultsPanel from './TaskResultsPanel';
 import { useCreationSkill } from './CreationSkillContext';
+import { projectRequest, type Project } from './creationProjectApi';
 
 export default function ImageStudio({onDraftChange,onSubmittingChange}:{onDraftChange?:(dirty:boolean)=>void;onSubmittingChange?:(busy:boolean)=>void}={}){
   const skill=useCreationSkill();const [models,setModels]=useState<ModelOption[]>([]);const [modelId,setModelId]=useState('');
@@ -17,11 +18,13 @@ export default function ImageStudio({onDraftChange,onSubmittingChange}:{onDraftC
   // Old deep links can still reuse stored data, without a second management UI here.
   const [product,setProduct]=useState<Product>();const [template,setTemplate]=useState<CreativeTemplate>();
   const [assets,setAssets]=useState<ProductAsset[]>([]);const [assetId,setAssetId]=useState('');const [values,setValues]=useState<Record<string,string>>({});
+  const [products,setProducts]=useState<Project[]>([]);const [experienceProduct,setExperienceProduct]=useState('');
   const selected=models.find(item=>item.id===modelId);const locked=busy||uncertain;
-  useEffect(()=>{onDraftChange?.(!!(prompt.trim()||reference||product||template||size!=='default'||count!==1));},[prompt,reference,product,template,size,count,onDraftChange]);
+  useEffect(()=>{onDraftChange?.(!!(prompt.trim()||reference||product||template||experienceProduct||size!=='default'||count!==1));},[prompt,reference,product,template,experienceProduct,size,count,onDraftChange]);
   useEffect(()=>{onSubmittingChange?.(busy);return()=>{onSubmittingChange?.(false);};},[busy,onSubmittingChange]);
   async function loadModels(){setReading(true);try{const items=await listModelOptions();if(alive.current){setModels(items);setModelId(previous=>items.some(item=>item.id===previous)?previous:items[0]?.id||'');}}catch(err){if(alive.current)setError(err instanceof Error?err.message:'模型读取失败');}finally{if(alive.current)setReading(false);}}
   useEffect(()=>{alive.current=true;void loadModels();const params=new URLSearchParams(window.location.hash.split('?')[1]);
+    projectRequest<Project[]>('?kind=product').then(items=>{if(alive.current)setProducts(items);}).catch(err=>{if(alive.current)setError(err.message);});
     if(params.get('product'))creativeRequest<Product[]>('products').then(items=>{const item=items.find(value=>value.id===params.get('product'));if(alive.current&&item){setProduct(item);setValues(productValues(item));return creativeRequest<ProductAsset[]>(`products/${item.id}/assets`).then(list=>{if(alive.current)setAssets(list);});}}).catch(err=>{if(alive.current)setError(err.message);});
     if(params.get('template'))creativeRequest<CreativeTemplate[]>('templates').then(items=>{const item=items.find(value=>value.id===params.get('template'));if(alive.current&&item){setTemplate(item);setSize(item.size);setCount(item.count);}}).catch(err=>{if(alive.current)setError(err.message);});
     return()=>{alive.current=false;};
@@ -30,6 +33,7 @@ export default function ImageStudio({onDraftChange,onSubmittingChange}:{onDraftC
   async function submit(event:FormEvent){
     event.preventDefault();if(!selected||busy)return;const id=requestId.current||crypto.randomUUID();requestId.current=id;setBusy(true);setError('');let knownRejection=false;let sent=false;
     try{const form=new FormData();form.set('config_id',selected.config_id);form.set('model_name',selected.model_name);form.set('request_id',id);form.set('prompt',prompt);form.set('size',size);form.set('count',String(count));
+      if(experienceProduct)form.set('experience_product_id',experienceProduct);
       if(reference)form.set('reference',reference);if(product)form.set('product',JSON.stringify({id:product.id,revision:product.revision,asset_id:assetId||null}));if(template)form.set('template',JSON.stringify({id:template.id,revision:template.revision,variables:values}));skill.append(form);
       sent=true;const response=await apiFetch('/api/image-jobs/batch',{method:'POST',body:form,signal:AbortSignal.timeout(30000)});knownRejection=response.status>=400&&response.status<500;
       const result=await response.json();if(!response.ok)throw new Error(typeof result.detail==='string'?result.detail:'提交失败，请检查输入。');
@@ -40,6 +44,7 @@ export default function ImageStudio({onDraftChange,onSubmittingChange}:{onDraftC
   return <section className="image-studio" aria-label="生图内容"><div className="studio-layout"><form className="studio-form" onSubmit={submit}>
     <div className="form-field"><label htmlFor="generation-config">图片模型</label><div className="input-with-action"><select id="generation-config" required disabled={locked} value={modelId} onChange={e=>setModelId(e.target.value)}><option value="">选择已配置模型</option>{models.map(item=><option key={item.id} value={item.id}>{item.model_name}</option>)}</select><button type="button" className="button-secondary" disabled={locked||reading} onClick={()=>void loadModels()}>{reading?'读取中…':'刷新'}</button></div>{!reading&&!models.length&&<small>先到<a href="#/settings">模型配置</a>保存模型连接。</small>}</div>
     <fieldset disabled={locked}>
+      {!product&&<details className="workflow-options"><summary>关联产品经验（选填）</summary><label>产品<select value={experienceProduct} onChange={e=>setExperienceProduct(e.target.value)}><option value="">不关联产品</option>{products.map(item=><option key={item.id} value={item.id}>{item.title}</option>)}</select></label><p>参考此产品已生效的通用及匹配用途的经验；产品资料和参考图仍需自行提供。</p></details>}
       {(product||template)&&<div className="production-source"><span>已载入：{[product?.name,template?.name].filter(Boolean).join(' / ')}</span><a href="#/studio">清除已载入内容</a></div>}
       {product&&!!assets.length&&<div className="form-field"><label htmlFor="creative-asset">已载入产品的参考图</label><select id="creative-asset" value={assetId} onChange={e=>{setAssetId(e.target.value);setReference(undefined);if(input.current)input.current.value='';}}><option value="">选择参考图或临时上传</option>{assets.map(item=><option key={item.id} value={item.id}>{item.kind} · {item.name}</option>)}</select></div>}
       {template?.variables.map(name=><TemplateVariableField key={name} name={name} value={values[name]||''} product={product} onChange={value=>setValues(previous=>({...previous,[name]:value}))}/>)}

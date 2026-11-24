@@ -1,5 +1,6 @@
 import type { ProductSnapshot } from './productApi';
 import type { TemplateSnapshot } from './creativeApi';
+import type { DrawingExperience } from './ProductExperience';
 
 export interface ProviderDiagnostic {
   method: string; path: string; http_status: number | null; response_body?: string;
@@ -9,6 +10,7 @@ export interface ProviderDiagnostic {
 export interface ImageRecord {
   owner_id?: string | null; can_edit?: boolean;
   preview_url?: string | null; execution_profile?: Record<string, unknown> & {
+    drawing_experience?: Record<string, DrawingExperience[]>;
     skill_workflow?: {primary: {name: string; version: string; version_id: string}; companions: {name: string; version: string}[]; purpose: string};
   }; execution_result?: {
     skill_execution?: {method: string; used_skills: {name: string; version: string; skill_id: string}[];

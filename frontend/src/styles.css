@@ -898,3 +898,28 @@ summary { cursor: pointer; color: #3e577c; }
 .plan-import-option small,.plan-import-option time { color:#7b8ba0; font-size:12px; font-weight:400; }
 .plan-import-option strong small { margin-left:10px; }
 .plan-import-dialog > footer { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; margin-top:18px; padding-top:12px; border-top:1px solid #e5ebf2; font-size:13px; }
+/* Product feedback and reusable drawing guidance */
+.case-editor label,.experience-rule label{display:grid;gap:7px;margin:12px 0;font-weight:600}
+.case-editor textarea,.experience-rule textarea{font-weight:400}
+.feedback-updated{display:block;margin-top:10px;color:var(--muted,#65758b)}
+.product-experience>header h3{margin-bottom:6px}
+.product-experience>header p{max-width:850px;line-height:1.7;color:var(--muted,#65758b)}
+.product-feedback-list{border:1px solid var(--border,#dce3ec);border-radius:12px;padding:16px;margin:18px 0}
+.product-feedback-list>summary{font-weight:650;cursor:pointer}
+.product-feedback-row{display:grid;grid-template-columns:96px minmax(0,1fr);gap:16px;border-top:1px solid var(--border,#dce3ec);padding:18px 0}
+.product-feedback-row img{width:96px;height:96px;object-fit:contain;border-radius:8px;background:#f3f6fa}
+.product-feedback-row header,.experience-rule>header{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px}
+.product-feedback-row header label{display:flex;align-items:center;gap:8px;font-weight:600}
+.product-feedback-row header input{width:auto}
+.product-feedback-row p,.experience-evidence,.experience-used p{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.7}
+.product-feedback-row p{margin:8px 0}
+.product-feedback-row small,.experience-rule small{color:var(--muted,#65758b);font-size:12px}
+.experience-rule{border:1px solid var(--border,#dce3ec);border-radius:12px;padding:18px;margin:18px 0;background:#fff}
+.experience-rule>header strong{font-size:13px;background:#fff0d2;color:#805b0b;padding:4px 10px;border-radius:6px}
+.experience-active>header strong{background:#e4f5ed;color:#17634a}
+.experience-disabled>header strong{background:#edf0f4;color:#65758b}
+.experience-scope{margin:12px 0;color:var(--muted,#65758b)}
+.experience-scope p{font-size:13px;line-height:1.7}
+.experience-evidence{display:block;font-size:13px;color:var(--muted,#65758b);margin:6px 0 12px}
+.experience-used{border:1px solid var(--border,#dce3ec);padding:14px 16px;border-radius:10px;margin:14px 0;background:#f7faf9}
+@media(max-width:600px){.product-feedback-row{grid-template-columns:64px minmax(0,1fr);gap:10px}.product-feedback-row img{width:64px;height:64px}}
