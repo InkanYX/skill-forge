@@ -377,6 +377,7 @@ export default function SkillLibrary() {
 
         <p className="skill-import-hint">{format === 'text' ? '粘贴制作要求，或从 Markdown / TXT 导入内容即可。' : '无需按固定目录重新打包。系统优先识别技能入口；说明文件不明确时，再让你选择。'}</p>
         <details className="skill-import-help"><summary>文件限制与保存方式</summary><p>{format === 'text' ? '正文最多 20000 字符；从文件导入时限 100 KB。' : 'ZIP 或文件夹总计最多 20 MB、1000 个文件，单个文件最多 5 MB。文字资料需为 UTF-8，支持 BOM。'}原始资料和历史版本会保留，包内脚本不会自动执行。</p></details>
+        {(busy||importing)&&<div className="upload-progress" role="status" aria-live="polite"><span className="upload-spinner" aria-hidden="true"/>{importing?'正在导入技能，请稍候…':format==='text'?'正在保存文本技能…':preview?'正在读取说明文件…':'正在上传并检查文件，请稍候…'}</div>}
         {format === 'text' ? <div className="skill-text-form">
           <div className="skill-text-grid">
             <div className="form-field">

@@ -114,7 +114,7 @@ export default function ImageSettings() {
       if (!alive) return;
       setConfig(value); setLoadError('');
       if (value && !dirtyRef.current) {
-        setName(value.name); setUrl(value.base_url); setModels(value.model_names); setModel(value.model_name);
+        setName(value.name); setUrl(value.base_url); const names = value.model_names || []; setModels(names); setModel(names.includes(value.model_name) ? value.model_name : names[0] || '');
         setOptions(value.model_settings || {}); setParams(toDraft(value));
         setAutoReview(value.auto_review); setGenerationPath(value.generation_path); setEditPath(value.edit_path);
         setPlanningModel(value.planning_model_name || ''); setImageModel(value.image_model_name || '');

@@ -1,16 +1,40 @@
-import { useState } from 'react';
+import { useState, type ChangeEvent } from 'react';
 import { materialUrl, stageNames, type Project } from './creationProjectApi';
 import { formatTaskTime } from './imageTaskApi';
 
 export function ProjectFeedback({error,notice,loading,onRefresh}:{error:string;notice:string;loading:boolean;onRefresh:()=>void}){
   return <>{error&&<p className="feedback feedback-error" role="alert">{error} <button type="button" onClick={onRefresh}>刷新</button></p>}{notice&&<p className="feedback feedback-success" role="status">{notice}</p>}{loading&&<p role="status">正在读取…</p>}</>;
 }
-export function ProjectMaterials({project,locked,onUpload,onRemove,styleOnly=false}:{project:Project;locked:boolean;styleOnly?:boolean;onUpload:(files:File[],kind:string)=>Promise<unknown>;onRemove:(id:string)=>void}){
+export function ProjectMaterials({project,locked,onUpload,onRemove,styleOnly=false,id}:{project:Project;locked:boolean;styleOnly?:boolean;id?:string;onUpload:(files:File[],kind:string)=>Promise<unknown>;onRemove:(id:string)=>void}){
   const [kind,setKind]=useState(styleOnly?'风格参考':'产品实拍');
-  return <section className="guided-card"><h3>{styleOnly?'本次素材与风格参考':'产品资料'}</h3><p>{styleOnly?'产品素材沿用已确认的分析。可补充风格和排版参考图。':'上传说明书、规格书、实拍和产品图，供分析与后续制作共同使用。'}</p>
-    <div className="guided-material-list">{project.materials.map(item=><article key={item.id}><a href={materialUrl(project.id,item.id)} target="_blank" rel="noreferrer">{item.media_type.startsWith('image/')&&<img src={materialUrl(project.id,item.id)+'?preview=true'} alt={item.name} loading="lazy"/>}<strong>{item.name}</strong></a><small>{item.kind}{item.media_type==='application/pdf'?' · '+item.pages+' 页':''}</small>{(!styleOnly||['风格参考','排版参考'].includes(item.kind))&&<button type="button" disabled={locked} onClick={()=>onRemove(item.id)}>移除</button>}</article>)}</div>
-    {!project.materials.length&&<p>还没有上传资料。</p>}
-    <div className="guided-upload"><label>资料用途<select value={kind} disabled={locked} onChange={e=>setKind(e.target.value)}>{(styleOnly?['风格参考','排版参考']:['说明书','规格书','产品实拍','产品图','结构细节','其他']).map(value=><option key={value}>{value}</option>)}</select></label><label>添加文件<input type="file" accept={styleOnly?'.png,.jpg,.jpeg,.webp':'.pdf,.png,.jpg,.jpeg,.webp'} multiple disabled={locked} onChange={e=>{const files=Array.from(e.target.files||[]);e.target.value='';void onUpload(files,kind);}}/></label></div><small>单份最多 20 MB，每个产品或方案最多 30 份、合计 100 MB。PDF 最多 100 页。</small>
+  const [uploading,setUploading]=useState(0);
+  const [uploadError,setUploadError]=useState('');
+  const busy=locked||uploading>0;
+  async function choose(event:ChangeEvent<HTMLInputElement>){
+    const incoming=Array.from(event.target.files||[]);
+    event.target.value='';
+    if(!incoming.length)return;
+    const allowed=styleOnly?/\.(png|jpe?g|webp)$/i:/\.(pdf|png|jpe?g|webp)$/i;
+    const rejected:string[]=[];const files:File[]=[];
+    for(const file of incoming){
+      if(!allowed.test(file.name)){rejected.push(`${file.name}（格式不支持）`);continue;}
+      if(file.size>20*1024*1024){rejected.push(`${file.name}（超过 20 MB）`);continue;}
+      files.push(file);
+    }
+    setUploadError(rejected.length?`未上传 ${rejected.length} 个文件：${rejected.slice(0,3).join('、')}${rejected.length>3?' 等':''}`:'');
+    if(!files.length)return;
+    setUploading(files.length);
+    try{const result=await onUpload(files,kind);if(!result)setUploadError('上传未完成，请查看页面上方的提示后重试。');}
+    catch{setUploadError('上传失败，请检查文件后重试。');}
+    finally{setUploading(0);}
+  }
+  return <section className="guided-card" id={id} aria-busy={uploading>0}><h3>{styleOnly?'本次素材与风格参考':'产品资料'}</h3><p>{styleOnly?'产品素材沿用已确认的分析。可补充风格和排版参考图。':'上传说明书、规格书、实拍和产品图，供分析与后续制作共同使用。'}</p>
+    <div className="guided-material-list">{project.materials.map(item=><article key={item.id}><a href={materialUrl(project.id,item.id)} target="_blank" rel="noreferrer">{item.media_type.startsWith('image/')&&<img src={materialUrl(project.id,item.id)+'?preview=true'} alt={item.name} loading="lazy"/>}<strong>{item.name}</strong></a><small>{item.kind}{item.media_type==='application/pdf'?' · '+item.pages+' 页':''}</small>{(!styleOnly||['风格参考','排版参考'].includes(item.kind))&&<button type="button" disabled={busy} onClick={()=>onRemove(item.id)}>移除</button>}</article>)}</div>
+    {!project.materials.length&&uploading===0&&<p>还没有上传资料。</p>}
+    <div className="material-upload-block"><span className="material-upload-title">上传资料</span><div className="material-uploader"><select aria-label="资料类型" title="资料类型" value={kind} disabled={busy} onChange={e=>setKind(e.target.value)}>{(styleOnly?['风格参考','排版参考']:['说明书','规格书','产品实拍','产品图','结构细节','其他']).map(value=><option key={value}>{value}</option>)}</select><span className="material-uploader-divider" aria-hidden="true"/><input aria-label="上传文件" type="file" accept={styleOnly?'.png,.jpg,.jpeg,.webp':'.pdf,.png,.jpg,.jpeg,.webp'} multiple disabled={busy} onChange={e=>void choose(e)}/></div></div>
+    {uploading>0&&<p className="upload-progress" role="status" aria-live="polite"><span className="upload-spinner" aria-hidden="true"/>正在上传 {uploading} 个文件，请稍候…</p>}
+    {uploadError&&<p className="feedback feedback-warning" role="alert">{uploadError}</p>}
+    <small>单份最多 20 MB，每个产品或方案最多 30 份、合计 100 MB。PDF 最多 100 页。</small>
   </section>;
 }
 export function ProjectHistory({project,stages}:{project:Project;stages:('analysis'|'brief'|'prompts')[]}){

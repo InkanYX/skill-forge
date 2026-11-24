@@ -116,7 +116,7 @@ class ImageConfigStore:
 
     def view(self, session, row):
         return {'id': row.id, 'revision': row.revision, 'name': row.name, 'base_url': row.base_url, 'model_name': row.model_name,
-                'model_names': json.loads(row.model_names or '[]') or list(dict.fromkeys(value for value in (row.model_name, row.text_model_name, row.vision_model_name) if value)),
+                'model_names': json.loads(row.model_names or '[]'),
                 'model_settings': json.loads(row.model_settings or '{}'), 'auto_review': row.auto_review,
                 'planning_model_name': row.planning_model_name, 'image_model_name': row.image_model_name,
                 'unified_models': bool(json.loads(row.model_names or '[]')),

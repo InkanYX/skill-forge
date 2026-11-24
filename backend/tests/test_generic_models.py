@@ -135,6 +135,23 @@ def test_image_only_model_can_create_and_edit_without_a_text_role(registry):
     assert all(not request.url.path.endswith('/chat/completions') for request in calls)
 
 
+def test_legacy_model_column_does_not_create_selectable_models(standard):
+    client, store, engine, directory = standard
+    saved = client.put('/api/image-configs', json={'base_url': 'https://image.example.com/v1', 'api_key': KEY, 'model_name': 'gpt-image-2.5-sunburst'})
+    assert saved.status_code == 200 and saved.json()['model_names'] == ['gpt-image-2.5-sunburst']
+    from app.database import ImageConfiguration
+    from sqlalchemy import select
+    from sqlalchemy.orm import Session
+    with Session(engine) as session:
+        row = session.scalar(select(ImageConfiguration))
+        assert row is not None
+        row.model_names = '[]'
+        session.commit()
+    payload = client.get('/api/image-configs').json()
+    assert payload['model_names'] == [] and payload['unified_models'] is False
+    assert client.put('/api/image-configs', json={'base_url': 'https://image.example.com/v1', 'planning_model_name': 'gpt-image-2.5-sunburst'}).status_code == 422
+
+
 def test_changing_provider_clears_all_model_evidence(registry):
     client,store,directory,config,calls,behavior,native=registry
     client.post('/api/image-configs/text',json={'prompt':'check'})
