@@ -572,7 +572,7 @@ def run_planning(store, execution_id, project_id, payload, stage):
         'experience_policy': '这些是人工确认的历史作图建议，不是产品事实。只用于本次适用场景，不能覆盖已确认事实、图需和本轮明确要求。'}
     try:
         reply, trace = plan_with_skills(store.engine, store.directory, directory, payload['skill_snapshot'], INSTRUCTIONS, brief,
-            lambda messages, bound_tools: _chat(profile['base_url'], key, profile['model'], messages, bound_tools, parameters=profile['parameters']), extra_tools=tools)
+            lambda messages, bound_tools: _chat(profile['base_url'], key, profile['model'], messages, bound_tools, timeout=300, parameters=profile['parameters']), extra_tools=tools)
         value = reply.strip()
         if value.startswith('```'): value = value.split('\n', 1)[-1].rsplit('```', 1)[0]
         (directory / 'planning-response.txt').write_text(value, encoding='utf-8')

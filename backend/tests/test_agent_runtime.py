@@ -231,6 +231,19 @@ def test_model_403_stops_without_retry(setup, monkeypatch):
         assert session.scalar(select(ImageJob).where(ImageJob.agent_run_id == run['id'])) is None
 
 
+def test_chat_timeout_reports_its_own_limit(setup, monkeypatch):
+    import app.agent_runtime as runtime
+    class TimeoutClient(FakeClient):
+        def post(self, *args, **kwargs):
+            raise runtime.httpx.ReadTimeout('slow')
+    monkeypatch.setattr(runtime.httpx, 'Client', TimeoutClient)
+    monkeypatch.setattr(runtime, 'pinned_url', lambda value: (value, {}, {}))
+    with pytest.raises(AgentError) as error:
+        _chat('https://image.example.com/v1', KEY, 'text-model', [{'role': 'user', 'content': 'hi'}], timeout=300)
+    assert '超过 300 秒未返回' in error.value.message
+    assert '连接失败' not in error.value.message
+
+
 def test_step_limit_stops_the_loop(setup):
     client, store, engine, directory = setup
     save_config(client)

@@ -179,7 +179,7 @@ def build_experience_router(store):
                  '不能编造规格或卖点，不能把单张图的审美偏好泛化为产品事实。只写有反馈依据的可执行规则；'
                  '区分正向做法和问题预防。条件性经验必须在 market/purpose/style 标注适用范围；通用产品保真经验这些字段为空。'
                  '每条 feedback_ids 只能引用输入的反馈 ID。输出结构：' + json.dumps(Summary.model_json_schema(), ensure_ascii=False)},
-                {'role': 'user', 'content': json.dumps(examples, ensure_ascii=False)}], parameters=store.parameters(request.state.image_owner, 'text'))
+                {'role': 'user', 'content': json.dumps(examples, ensure_ascii=False)}], timeout=180, parameters=store.parameters(request.state.image_owner, 'text'))
             text = reply.get('content', '').strip()
             if text.startswith('```'): text = text.split('\n', 1)[-1].rsplit('```', 1)[0]
             result = Summary.model_validate_json(text)

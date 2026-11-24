@@ -183,6 +183,7 @@ def test_timeout_does_not_leak_credentials_or_retry():
         with pytest.raises(GenerationError) as error:
             generate_image("https://images.example.com/v1", KEY, "image-test", "scene", "default", None)
     assert error.value.uncertain
+    assert '响应超时' in error.value.message
     assert KEY not in error.value.message
     assert len(calls) == 1
 

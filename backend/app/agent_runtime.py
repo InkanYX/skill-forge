@@ -170,6 +170,8 @@ def _chat(base_url: str, key: str, model: str, messages: list, tools: list | Non
     try:
         with httpx.Client(timeout=httpx.Timeout(timeout, connect=8), follow_redirects=False, trust_env=False) as client:
             response = client.post(target, headers=headers, json=body, extensions=extensions)
+    except httpx.TimeoutException:
+        raise AgentError(f'文字模型超过 {timeout:g} 秒未返回，请重试或改用更快的模型。') from None
     except httpx.HTTPError:
         raise AgentError('文字模型连接失败，请检查网络与服务商地址。') from None
     diagnostic = (provider_diagnostic(response, '/chat/completions', 'planning', (key,), int((time.monotonic() - started) * 1000))
@@ -205,7 +207,7 @@ def _vision(base_url: str, key: str, model: str, image: bytes, question: str,
         {'role': 'user', 'content': content},
     ]
     try:
-        message = _chat(base_url, key, model, messages, **({'parameters': parameters} if parameters is not None else {}))
+        message = _chat(base_url, key, model, messages, timeout=180, **({'parameters': parameters} if parameters is not None else {}))
     except AgentError as error:
         raise AgentError(error.message.replace('文字模型', '视觉模型'), diagnostic=error.diagnostic) from None
     content = message.get('content')
@@ -546,7 +548,7 @@ def execute_run(engine, directory: Path, configs: ImageConfigStore, run_id: str,
         context.analyze_reference()
         for _ in range(run.max_steps):
             guard(engine, run_id)
-            message = chat(base_url, key, model, messages, TOOLS, parameters=configs.parameters(run.owner_id, 'text'))
+            message = chat(base_url, key, model, messages, TOOLS, timeout=300, parameters=configs.parameters(run.owner_id, 'text'))
             messages.append({key_: value for key_, value in message.items()
                              if key_ in ('role', 'content', 'tool_calls') and value is not None})
             calls = message.get('tool_calls') or []

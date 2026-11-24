@@ -166,7 +166,7 @@ def test_launcher_sdk_disables_hidden_retries_without_network(monkeypatch,tmp_pa
     monkeypatch.setattr(launcher.runpy,'run_path',fake_run)
     monkeypatch.setattr('sys.argv',['wrapper',str(tmp_path/'diagnostic.json'),'generate'])
     launcher.main()
-    assert captured['timeout'].read==300
+    assert captured['timeout'].read==600
 
 @pytest.mark.parametrize('kind', ['generate','edit'])
 def test_original_cli_through_real_sdk_uses_exact_payload_and_actual_reference(monkeypatch,tmp_path,kind):

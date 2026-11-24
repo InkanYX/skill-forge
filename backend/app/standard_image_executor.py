@@ -41,7 +41,7 @@ def execute_cli(directory, profile, key, prompt, reference):
     started = time.monotonic()
     try:
         result = subprocess.run(command, cwd=BACKEND, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                timeout=330, creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
+                                timeout=660, creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
         code = result.returncode
     except subprocess.TimeoutExpired:
         code = -1

@@ -181,13 +181,13 @@ export default function ImageSettings() {
       if (!test && kind === 'text') {
         reply = await apiFetch('/api/image-configs/text', {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt, model_name: model }),
-          signal: AbortSignal.timeout(130000),
+          signal: AbortSignal.timeout(75000),
         });
       } else {
         const id = ids.current[kind] || crypto.randomUUID(); ids.current[kind] = id;
         const body = new FormData(); body.set('request_id', id); body.set('authorized', 'yes'); body.set('model_name', model);
         if (kind === 'edit' && reference) body.set('reference', reference);
-        reply = await apiFetch('/api/image-configs/verify/' + kind, { method: 'POST', body, signal: AbortSignal.timeout(130000) });
+        reply = await apiFetch('/api/image-configs/verify/' + kind, { method: 'POST', body, signal: AbortSignal.timeout(kind === 'vision' ? 200000 : 130000) });
       }
       knownRejection = reply.status >= 400 && reply.status < 500;
       const value = await reply.json();

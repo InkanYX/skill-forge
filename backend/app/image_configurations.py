@@ -283,7 +283,7 @@ class ImageConfigStore:
                 buffer = io.BytesIO(); Image.new('RGB', (16, 16), 'red').save(buffer, 'PNG')
                 result = _vision(url, key, model, buffer.getvalue(), prompt, parameters=parameters)
             else:
-                result = _chat(url, key, model, [{'role': 'user', 'content': prompt}], parameters=parameters).get('content', '')
+                result = _chat(url, key, model, [{'role': 'user', 'content': prompt}], timeout=60, parameters=parameters).get('content', '')
             checked = evidence(model, True, message='调用成功。')
         except AgentError as error:
             result = ''
@@ -378,7 +378,7 @@ def build_image_config_router(store):
             try:
                 result = _chat(url, key, model_name, [{'role': 'user', 'content': '请调用 capability_check 工具，value 填 OK，不要仅回复文字。'}],
                     [{'type': 'function', 'function': {'name': 'capability_check', 'description': '检查工具调用能力', 'parameters': {'type': 'object', 'properties': {'value': {'type': 'string'}}, 'required': ['value']}}}],
-                    parameters=current.get('model_settings', {}).get(model_name, {}).get('text_parameters', {}))
+                    timeout=60, parameters=current.get('model_settings', {}).get(model_name, {}).get('text_parameters', {}))
                 supported = any(call.get('function', {}).get('name') == 'capability_check' for call in result.get('tool_calls', []))
                 checked = evidence(model_name, supported, message='已收到工具调用。' if supported else '未返回工具调用，能力待确认。')
             except AgentError as error:

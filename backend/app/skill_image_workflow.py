@@ -126,7 +126,7 @@ def prepare(store, owner, profile: dict, directory: Path, prompt: str, reference
                     'reference_observations': observations or '无自动视觉观察，不能推测图片中未确认的信息。'}
             from app.skill_agent import plan_with_skills
             reply, reading = plan_with_skills(store.engine, store.directory, directory, snapshot, instructions, brief,
-                lambda messages, tools: _chat(base_url, key, model, messages, tools, parameters=store.parameters(owner, 'text')))
+                lambda messages, tools: _chat(base_url, key, model, messages, tools, timeout=300, parameters=store.parameters(owner, 'text')))
             if not isinstance(reply, str):
                 raise GenerationError('技能策划未返回可识别的提示词，未提交图片。')
             (directory / 'planning-response.txt').write_text(reply, encoding='utf-8')

@@ -81,8 +81,8 @@ def generate_image(base_url: str, api_key: str, model: str, prompt: str, size: s
     try:
         target, headers, extensions = pinned_url(endpoint)
         headers["Authorization"] = f"Bearer {api_key}"
-        deadline = time.monotonic() + 300
-        with httpx.Client(timeout=httpx.Timeout(300, connect=8), follow_redirects=False, trust_env=False) as client:
+        deadline = time.monotonic() + 600
+        with httpx.Client(timeout=httpx.Timeout(600, connect=8), follow_redirects=False, trust_env=False) as client:
             with client.stream("POST", target, headers=headers, extensions=extensions, **request_args) as response:
                 response_status = response.status_code
                 if response.status_code != 200:
@@ -103,12 +103,12 @@ def generate_image(base_url: str, api_key: str, model: str, prompt: str, size: s
                 # Never forward the provider credential to an image CDN.
                 phase, path, response_status = 'download', '[图片下载地址已隐藏]', None
                 download, download_headers, download_extensions = pinned_url(first["url"])
-                with client.stream("GET", download, headers=download_headers, extensions=download_extensions, timeout=60) as response:
+                with client.stream("GET", download, headers=download_headers, extensions=download_extensions, timeout=90) as response:
                     response_status = response.status_code
                     if response.status_code != 200:
                         diagnostic = provider_diagnostic(response, '[图片下载地址已隐藏]', 'download', (api_key, prompt), int((time.monotonic() - started) * 1000))
                         raise GenerationError("服务商已返回图片地址，但下载失败；请核对记录，勿直接重复生成。", True, diagnostic)
-                    content = read_bounded(response, MAX_IMAGE, time.monotonic() + 60)
+                    content = read_bounded(response, MAX_IMAGE, time.monotonic() + 90)
             else:
                 raise GenerationError("服务商未返回有效图片内容，请核对服务商记录。", True)
         try:
@@ -130,7 +130,11 @@ def generate_image(base_url: str, api_key: str, model: str, prompt: str, size: s
         message = '服务商已接受请求，但图片下载地址不可用；请核对服务商记录，未自动重试。' if phase == 'download' else '服务商地址验证失败，未发送生图请求。'
         diagnostic = diagnostic_context(path, phase, (api_key, prompt), int((time.monotonic() - started) * 1000), response_status, 'AddressValidationError', message)
         raise GenerationError(message, phase == 'download', diagnostic) from None
+    except httpx.TimeoutException as error:
+        message = '服务商响应超时，结果无法确认；请核对服务商记录，未自动重试。'
+        diagnostic = diagnostic_context(path, phase, (api_key, prompt), int((time.monotonic() - started) * 1000), response_status, type(error).__name__, message)
+        raise GenerationError(message, True, diagnostic) from None
     except (httpx.HTTPError, ValueError, binascii.Error) as error:
-        message = '连接中断、超时或返回格式异常，结果无法确认；请核对服务商记录，未自动重试。'
+        message = '连接中断或返回格式异常，结果无法确认；请核对服务商记录，未自动重试。'
         diagnostic = diagnostic_context(path, phase, (api_key, prompt), int((time.monotonic() - started) * 1000), response_status, type(error).__name__, message)
         raise GenerationError(message, True, diagnostic) from None

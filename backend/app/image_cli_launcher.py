@@ -25,7 +25,7 @@ class PublicTransport(httpx.BaseTransport):
 def main():
     output = Path(sys.argv[1]); cli = Path(__file__).resolve().parents[1] / 'vendor/imagegen/image_gen.py'
     original = openai.OpenAI
-    openai.OpenAI = lambda: original(max_retries=0, timeout=httpx.Timeout(300, connect=8),
+    openai.OpenAI = lambda: original(max_retries=0, timeout=httpx.Timeout(600, connect=8),
         http_client=httpx.Client(transport=PublicTransport(), follow_redirects=False, trust_env=False))
     mode = sys.argv[2]
     sys.argv = [str(cli), *sys.argv[2:]]

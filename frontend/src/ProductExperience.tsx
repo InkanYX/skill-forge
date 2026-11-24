@@ -10,7 +10,7 @@ export interface DrawingExperience {
 interface Feedback {id:string; revision:number; job_id:string; outcome:string; experience:string; issues:string; requested_change:string; shot_name:string; image_url:string; updated_at:string}
 interface ExperienceData {feedback:Feedback[]; experiences:DrawingExperience[]}
 async function request<T>(path:string,method='GET',body?:unknown):Promise<T>{
-  const response=await apiFetch('/api/product-experience/'+path,{method,cache:'no-store',signal:AbortSignal.timeout(method==='POST'&&path.endsWith('/summarize')?150000:20000),headers:body?{'Content-Type':'application/json'}:undefined,body:body?JSON.stringify(body):undefined});
+  const response=await apiFetch('/api/product-experience/'+path,{method,cache:'no-store',signal:AbortSignal.timeout(method==='POST'&&path.endsWith('/summarize')?210000:20000),headers:body?{'Content-Type':'application/json'}:undefined,body:body?JSON.stringify(body):undefined});
   const value=await response.json();if(!response.ok)throw new Error(typeof value.detail==='string'?value.detail:'保存未完成，请检查内容并重试。');return value;
 }
 const statusNames={candidate:'待确认',active:'已生效',disabled:'已停用'};
