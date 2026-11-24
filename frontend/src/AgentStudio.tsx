@@ -180,7 +180,7 @@ export default function AgentStudio({ route = '', active = true, detailOnly = fa
           <div className="form-field"><label htmlFor="agent-reference">参考图（选填，1 张）</label><input id="agent-reference" type="file" accept="image/png,image/jpeg,image/webp" onChange={e => setReference(e.target.files?.[0])} /><small>{reference ? `已选择 ${reference.name}` : '用于商品结构核对或作为编辑参考；不提供则 Agent 只能生成新图。'}</small></div>
           <div className="skill-import-row">
             <div className="form-field"><label htmlFor="agent-steps">最多步数</label><input id="agent-steps" type="number" min={5} max={40} value={maxSteps} onChange={e => setMaxSteps(Number(e.target.value))} /></div>
-            <div className="form-field"><label htmlFor="agent-images">最多出图</label><input id="agent-images" type="number" min={1} max={8} value={maxImages} onChange={e => setMaxImages(Number(e.target.value))} /></div>
+            <div className="form-field"><label htmlFor="agent-images">最多出图</label><input id="agent-images" type="number" min={1} max={16} value={maxImages} onChange={e => setMaxImages(Number(e.target.value))} /></div>
           </div>
         </fieldset>
         <div className="form-actions"><button className="button-primary" disabled={busy || !config || !packages.length}>{busy ? '提交中…' : '开始制作'}</button></div>

@@ -30,7 +30,7 @@ class ProjectInput(BaseModel):
     title: str = Field(min_length=1, max_length=120)
     goal: str = Field(default='', max_length=12000)
     style: str = Field(default='', max_length=8000)
-    image_count: int = Field(default=4, ge=1, le=8)
+    image_count: int = Field(default=4, ge=1, le=16)
     planning_model: str = Field(default='', max_length=200)
     sku: str = Field(default='', max_length=100)
     image_model: str = Field(default='', max_length=200)
@@ -89,7 +89,7 @@ class Shot(BaseModel):
 
 
 class Brief(BaseModel):
-    shots: list[Shot] = Field(min_length=1, max_length=8)
+    shots: list[Shot] = Field(min_length=1, max_length=16)
 
 
 class Prompt(BaseModel):
@@ -105,7 +105,7 @@ class Prompt(BaseModel):
 
 
 class Prompts(BaseModel):
-    prompts: list[Prompt] = Field(min_length=1, max_length=8)
+    prompts: list[Prompt] = Field(min_length=1, max_length=16)
 
 
 SCHEMAS = {'analysis': Analysis, 'brief': Brief, 'prompts': Prompts}
@@ -116,7 +116,7 @@ class DocumentInput(RevisionInput):
 
 
 class GenerateInput(StageInput):
-    shot_ids: list[str] = Field(min_length=1, max_length=8)
+    shot_ids: list[str] = Field(min_length=1, max_length=16)
     image_model: str | None = Field(default=None, max_length=200)
 
 
@@ -132,7 +132,7 @@ class PlanTemplateInput(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     description: str = Field(default='', max_length=2000)
     style: str = Field(default='', max_length=8000)
-    shots: list[TemplateShot] = Field(min_length=1, max_length=8)
+    shots: list[TemplateShot] = Field(min_length=1, max_length=16)
 
 
 class ImportProductInput(BaseModel):

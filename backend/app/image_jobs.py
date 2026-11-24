@@ -76,7 +76,7 @@ class ShotInput(BaseModel):
 
 class ImageSetInput(BaseModel):
     name: str = Field(min_length=1, max_length=100)
-    shots: list[ShotInput] = Field(min_length=1, max_length=8)
+    shots: list[ShotInput] = Field(min_length=1, max_length=16)
 
     @field_validator('name')
     @classmethod
@@ -116,8 +116,8 @@ def create_job(engine, directory, config_id, model_name, prompt, size, request_i
 
 
 def create_jobs(engine, directory, config_id, model_name, prompt, size, request_id, reference, count, template_request=None, product_request=None, source_job_id=None, image_set=None, standard_config=None, owner_id=None, references=None):
-    if not 1 <= count <= 8:
-        raise HTTPException(422, "每次请选择 1 至 8 张图片。")
+    if not 1 <= count <= 16:
+        raise HTTPException(422, "每次请选择 1 至 16 张图片。")
     try:
         size = normalize_size(size)
     except ValueError as error:
@@ -491,7 +491,7 @@ def build_image_router(engine, directory: Path, image_configs=None):
             if any(value is not None and (not isinstance(value, dict) or not value) for value in (template_request, product_request)):
                 raise ValueError()
         except (ValueError, ValidationError):
-            raise HTTPException(422, '请检查套图清单：每套 1–8 张，名称、用途和要求必填，单张要求最多 4000 字符；尺寸为 default 或正整数宽x高，总像素不超过 2000 万。') from None
+            raise HTTPException(422, '请检查套图清单：每套 1–16 张，名称、用途和要求必填，单张要求最多 4000 字符；尺寸为 default 或正整数宽x高，总像素不超过 2000 万。') from None
         content = reference.file.read(MAX_IMAGE + 1) if reference else None
         return create_jobs(engine, directory, str(config_id), model_name, prompt, 'default', str(request_id), content, len(image_set['shots']), template_request, product_request, image_set=image_set, standard_config=standard_profile(request, config_id, skill))
 
@@ -565,7 +565,7 @@ def build_image_router(engine, directory: Path, image_configs=None):
         return create_jobs(engine, directory, str(config_id), model_name, prompt, size, str(request_id), content, 1, standard_config=standard_profile(request, config_id, skill))[0]
 
     @router.post("/batch", response_model=list[JobView], status_code=202)
-    def submit_batch(request: Request, config_id: Annotated[UUID, Form()], request_id: Annotated[UUID, Form()], prompt: Annotated[str, Form(max_length=8000)] = "", count: Annotated[int, Form(ge=1, le=8)] = 1, size: Annotated[ImageSize, Form()] = "default", reference: Annotated[UploadFile | None, File()] = None, template: Annotated[str, Form(max_length=240000)] = "", product: Annotated[str, Form(max_length=2000)] = "", source_job_id: Annotated[UUID | None, Form()] = None, model_name: Annotated[str, Form(max_length=200)] = "", skill: Annotated[str, Form(max_length=2000)] = "", experience_product_id: Annotated[UUID | None, Form()] = None):
+    def submit_batch(request: Request, config_id: Annotated[UUID, Form()], request_id: Annotated[UUID, Form()], prompt: Annotated[str, Form(max_length=8000)] = "", count: Annotated[int, Form(ge=1, le=16)] = 1, size: Annotated[ImageSize, Form()] = "default", reference: Annotated[UploadFile | None, File()] = None, template: Annotated[str, Form(max_length=240000)] = "", product: Annotated[str, Form(max_length=2000)] = "", source_job_id: Annotated[UUID | None, Form()] = None, model_name: Annotated[str, Form(max_length=200)] = "", skill: Annotated[str, Form(max_length=2000)] = "", experience_product_id: Annotated[UUID | None, Form()] = None):
         require_database()
         content = reference.file.read(MAX_IMAGE + 1) if reference else None
         # The requested model must belong to the saved provider configuration.

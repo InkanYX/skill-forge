@@ -58,7 +58,7 @@ def test_set_uses_individual_briefs_sizes_and_idempotency(setup):
         assert client.get('/api/image-jobs/library', params={'status': 'all', 'q': '结构细节'}).json()['total'] == 1
 
 
-@pytest.mark.parametrize('invalid', [[], {'name': '套图', 'shots': []}, {'name': '套图', 'shots': [{'name': ' ', 'prompt': 'x'}]}, {'name': '套图', 'shots': [{'name': 'a', 'prompt': 'x'}] * 9}, {'name': '套图', 'shots': [{'name': 'a', 'prompt': 'x', 'size': 'unsupported'}]}])
+@pytest.mark.parametrize('invalid', [[], {'name': '套图', 'shots': []}, {'name': '套图', 'shots': [{'name': ' ', 'prompt': 'x'}]}, {'name': '套图', 'shots': [{'name': 'a', 'prompt': 'x'}] * 17}, {'name': '套图', 'shots': [{'name': 'a', 'prompt': 'x', 'size': 'unsupported'}]}])
 def test_invalid_plan_creates_no_partial_jobs(setup, invalid):
     engine, directory, config = setup
     with TestClient(create_app(directory, db_url=str(engine.url))) as client:

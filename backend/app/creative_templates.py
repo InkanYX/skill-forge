@@ -26,7 +26,7 @@ class TemplateInput(BaseModel):
     skill_revision: int = Field(default=0, ge=0)
     notes: str = Field(default="", max_length=2000)
     size: ImageSize = "default"
-    count: int = Field(default=4, ge=1, le=8)
+    count: int = Field(default=4, ge=1, le=16)
     revision: int = Field(default=0, ge=0)
 
     @field_validator("name", "prompt")

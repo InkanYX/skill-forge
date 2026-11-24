@@ -713,7 +713,7 @@ class RunInput(BaseModel):
     skill_id: UUID
     config_id: UUID
     max_steps: int = Field(default=20, ge=5, le=40)
-    max_images: int = Field(default=6, ge=1, le=8)
+    max_images: int = Field(default=6, ge=1, le=16)
 
 
 class ReworkInput(BaseModel):

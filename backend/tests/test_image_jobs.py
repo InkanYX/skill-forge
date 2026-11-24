@@ -274,7 +274,7 @@ def test_all_creation_flows_use_selected_saved_model_and_keep_queued_snapshot(se
         assert submit().status_code == 422
 
 
-@pytest.mark.parametrize('count', ['0', '9', 'abc'])
+@pytest.mark.parametrize('count', ['0', '17', 'abc'])
 def test_invalid_batch_count_creates_no_jobs(setup, count):
     engine, directory, config = setup
     with TestClient(create_app(directory, db_url=str(engine.url))) as client:
