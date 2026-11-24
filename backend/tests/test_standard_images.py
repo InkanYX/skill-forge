@@ -125,14 +125,15 @@ def test_unknown_and_auth_denial_never_retried_or_fallback(standard):
     assert len(calls)==2
 
 
-def test_cli_command_fixed_env_and_native_bytes_with_preview(tmp_path):
+@pytest.mark.parametrize('model', ['gpt-image-2.5-sunburst', 'gpt-image-2'])
+def test_cli_command_selected_model_env_and_native_bytes_with_preview(tmp_path, model):
     original=png();(tmp_path/'reference.png').write_bytes(original)
     calls=[]
     def subprocess_run(command,**kwargs):
         calls.append(command)
         assert kwargs['env']['OPENAI_API_KEY']==KEY
         assert kwargs['env']['OPENAI_BASE_URL']=='https://image.example.com/v1'
-        assert '--no-augment' in command and command[command.index('--model')+1]=='gpt-image-2.5-sunburst'
+        assert '--no-augment' in command and command[command.index('--model')+1]==model
         assert command[command.index('--size')+1]=='auto' and command[command.index('--n')+1]=='1'
         assert command[command.index('--image')+1]==str(tmp_path/'reference.png')
         assert (tmp_path/'prompt.txt').read_text(encoding='utf-8')=='中文完整提示词'
@@ -141,9 +142,10 @@ def test_cli_command_fixed_env_and_native_bytes_with_preview(tmp_path):
         return SimpleNamespace(returncode=0)
     previous=os.environ.get('OPENAI_API_KEY')
     with patch('app.standard_image_executor.subprocess.run',subprocess_run):
-        result=execute_cli(tmp_path,{'base_url':'https://image.example.com/v1'},KEY,'中文完整提示词',original)
+        result=execute_cli(tmp_path,{'base_url':'https://image.example.com/v1', 'model':model},KEY,'中文完整提示词',original)
     assert os.environ.get('OPENAI_API_KEY')==previous
     assert result['native_pixels']==[12,8] and result['references'][0]['role']=='edit_target'
+    assert result['rules']['model']==model
     assert (tmp_path/'result.png').read_bytes()==original
     assert (tmp_path/'preview.jpg').is_file() and len(calls)==1
     assert all(KEY.encode() not in p.read_bytes() for p in tmp_path.iterdir() if p.is_file())
@@ -169,7 +171,8 @@ def test_launcher_sdk_disables_hidden_retries_without_network(monkeypatch,tmp_pa
     assert captured['timeout'].read==300
 
 @pytest.mark.parametrize('kind', ['generate','edit'])
-def test_original_cli_through_real_sdk_uses_exact_payload_and_actual_reference(monkeypatch,tmp_path,kind):
+@pytest.mark.parametrize('model', ['gpt-image-2.5-sunburst', 'gpt-image-2'])
+def test_original_cli_through_real_sdk_uses_exact_payload_and_actual_reference(monkeypatch,tmp_path,kind,model):
     import base64
     import app.image_cli_launcher as launcher
     captured=[]
@@ -181,16 +184,17 @@ def test_original_cli_through_real_sdk_uses_exact_payload_and_actual_reference(m
         if kind=='edit':
             assert b'reference.png' in raw and png() in raw
             assert b'name="size"' in raw and b'auto' in raw
+            assert model.encode() in raw
         else:
             body=json.loads(raw)
-            assert body['model']=='gpt-image-2.5-sunburst' and body['prompt']=='exact prompt'
+            assert body['model']==model and body['prompt']=='exact prompt'
             assert body['size']=='auto' and body['quality']=='high' and body['output_format']=='png' and body['n']==1
         return httpx.Response(200,json={'data':[{'b64_json':base64.b64encode(png()).decode()}]})
     monkeypatch.setattr(launcher,'PublicTransport',lambda:httpx.MockTransport(handle))
     monkeypatch.setattr(launcher.openai,'OpenAI',launcher.openai.OpenAI)
     monkeypatch.setenv('OPENAI_API_KEY',KEY);monkeypatch.setenv('OPENAI_BASE_URL','https://image.example.com/v1')
     (tmp_path/'prompt.txt').write_text('exact prompt',encoding='utf-8')
-    args=['wrapper',str(tmp_path/'diagnostic.json'),kind,'--model','gpt-image-2.5-sunburst','--quality','high','--size','auto','--output-format','png','--no-augment','--prompt-file',str(tmp_path/'prompt.txt'),'--out',str(tmp_path/'native.png')]
+    args=['wrapper',str(tmp_path/'diagnostic.json'),kind,'--model',model,'--quality','high','--size','auto','--output-format','png','--no-augment','--prompt-file',str(tmp_path/'prompt.txt'),'--out',str(tmp_path/'native.png')]
     if kind=='edit':
         (tmp_path/'reference.png').write_bytes(png());args.extend(['--image',str(tmp_path/'reference.png')])
     monkeypatch.setattr('sys.argv',args)
@@ -323,3 +327,70 @@ def test_model_discovery_reuses_selected_connection_and_is_explicit(standard):
         reply=client.post('/api/image-configs/models',json={})
     assert reply.status_code==200 and reply.json()['models']==['text-planner']
     assert calls==[(config['base_url'],KEY)] and KEY not in reply.text
+
+
+def test_selected_image_models_persist_and_text_only_save_preserves_them(standard):
+    from app.image_configurations import ImageConfigStore
+    client,store,engine,directory=standard
+    config=save(client)
+    assert config['model_name']=='gpt-image-2.5-sunburst'
+    verify(client);process_standard_one(store,fake_executor)
+    with Session(engine) as session:
+        owner=session.get(ImageConfiguration,config['id']).owner
+        revision=session.get(ImageConfiguration,config['id']).revision
+    payload={'base_url':config['base_url'], 'model_name':'gpt-image-2',
+             'model_names':['gpt-image-2.5-sunburst',' gpt-image-2 ','gpt-image-2']}
+    reply=client.put('/api/image-configs',json=payload)
+    assert reply.status_code==200,reply.text
+    current=reply.json()
+    assert current['model_name']==current['rules']['model']=='gpt-image-2'
+    assert current['model_names']==['gpt-image-2.5-sunburst','gpt-image-2']
+    assert current['generation']['status']==current['edit']['status']=='unverified'
+    with Session(engine) as session:
+        assert session.get(ImageConfiguration,config['id']).revision!=revision
+    preserved=client.put('/api/image-configs',json={'base_url':config['base_url'],'text_model_name':'planner'}).json()
+    assert preserved['model_name']==current['model_name'] and preserved['model_names']==current['model_names']
+    restored=ImageConfigStore(engine,directory).get(owner)
+    assert restored['model_names']==current['model_names'] and not restored['has_api_key']
+    assert client.put('/api/image-configs',json={**payload,'model_name':''}).status_code==422
+    assert client.put('/api/image-configs',json={**payload,'model_names':['gpt-image-1']}).status_code==422
+    assert client.put('/api/image-configs',json={**payload,'model_names':['bad\nmodel']}).status_code==422
+    assert KEY not in reply.text
+
+
+@pytest.mark.parametrize('kind', ['generate','edit'])
+def test_chosen_image_model_reaches_job_snapshot_and_worker(standard,kind):
+    client,store,engine,directory=standard
+    config=save(client)
+    payload={'base_url':config['base_url'], 'model_names':['gpt-image-2.5-sunburst','gpt-image-2']}
+    assert client.put('/api/image-configs',json=payload).status_code==200
+    fields={key:(None,value) for key,value in {'config_id':config['id'],'model_name':'gpt-image-2',
+            'request_id':str(uuid4()),'prompt':'exact prompt'}.items()}
+    if kind=='edit': fields['reference']=('ref.png',png(),'image/png')
+    reply=client.post('/api/image-jobs/batch',files=fields)
+    assert reply.status_code==202,reply.text
+    job=reply.json()[0]
+    assert job['model_name']==job['execution_profile']['model']=='gpt-image-2'
+    def execute(directory,profile,key,prompt,reference):
+        assert profile['model']=='gpt-image-2' and key==KEY
+        assert (reference is not None)==(kind=='edit')
+        return {'rules':{'model':profile['model']}}
+    assert process_standard_one(store,execute)
+    assert client.put('/api/image-configs',json={**payload,'model_name':'gpt-image-2'}).status_code==200
+    check=verify(client,kind)
+    assert client.get('/api/image-jobs/'+check['job_id']).json()['model_name']=='gpt-image-2'
+    assert process_standard_one(store,execute)
+
+
+def test_unconfigured_or_incompatible_image_model_is_rejected_without_fallback(standard):
+    client,store,engine,directory=standard
+    config=save(client)
+    fields={key:(None,value) for key,value in {'config_id':config['id'],'model_name':'gpt-image-other',
+            'request_id':str(uuid4()),'prompt':'exact prompt'}.items()}
+    assert client.post('/api/image-jobs/batch',files=fields).status_code==422
+    assert client.put('/api/image-configs',json={'base_url':config['base_url'],'model_names':['gpt-image-2.5-sunburst','other-model']}).status_code==200
+    fields['model_name']=(None,'other-model')
+    reply=client.post('/api/image-jobs/batch',files=fields)
+    assert reply.status_code==422 and 'imagegen' in reply.text
+    with Session(engine) as session:
+        assert list(session.scalars(select(ImageJob)))==[]

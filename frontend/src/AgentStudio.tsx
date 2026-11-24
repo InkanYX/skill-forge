@@ -29,6 +29,7 @@ export default function AgentStudio() {
   const { user } = useAuth();
   const [packages, setPackages] = useState<SkillPackage[]>([]);
   const [config, setConfig] = useState<ImageConfiguration | null>(null);
+  const [imageModel, setImageModel] = useState('');
   const [runs, setRuns] = useState<AgentRun[]>([]);
   const [runId, setRunId] = useState('');
   const [detail, setDetail] = useState<AgentRun>();
@@ -55,6 +56,7 @@ export default function AgentStudio() {
       setPackages(usable);
       setSkillId(previous => previous || usable[0]?.id || '');
       setConfig(configItem);
+      setImageModel(previous => configItem?.model_names.includes(previous) ? previous : configItem?.model_name || '');
       setError('');
     } catch (err) { setError(err instanceof Error ? err.message : '基础信息读取失败'); }
   }
@@ -86,6 +88,7 @@ export default function AgentStudio() {
       const form = new FormData();
       form.append('payload', JSON.stringify({
         goal: goal.trim(), skill_id: skillId, config_id: config.id,
+        image_model_name: imageModel,
         max_steps: maxSteps, max_images: maxImages,
       }));
       if (reference) form.append('reference', reference);
@@ -125,7 +128,7 @@ export default function AgentStudio() {
     <div className="skill-rules">
       <strong>固定规则</strong>
       <ul>
-        <li>图片固定 <code>gpt-image-2.5-sunburst</code> / high / auto / PNG / 不增强，调用失败不自动重试。</li>
+        <li>生图模型按本次选择执行；默认 gpt-image-2.5-sunburst，沿用 high / auto / PNG / 不增强，调用失败不自动重试。</li>
         <li>技能包只读；本次任务锁定当前启用的版本，后续升级不影响已创建任务。</li>
         <li>不执行技能里的脚本，也不访问技能目录以外的文件；只使用系统提供的确定性工具。</li>
         <li>没有配置视觉模型时，Agent 只能以「待人工审核」结束，不能声称自动质检通过。</li>
@@ -146,6 +149,7 @@ export default function AgentStudio() {
             </select>
             <small>{currentSkill ? `当前版本 ${currentSkill.current_version?.version_label}，编译档位 ${currentSkill.current_version?.compile_level === 'full' ? '完整参考' : '核心'}。` : '请先在技能库中启用一个版本。'}</small>
           </div>
+          <div className="form-field"><label htmlFor="agent-image-model">生图模型</label><select id="agent-image-model" required value={imageModel} onChange={e => setImageModel(e.target.value)}>{!config && <option value="">请先保存模型配置</option>}{config?.model_names.map(model => <option key={model} value={model}>{model}{model===config.model_name?' · 默认':''}</option>)}</select><small>本次任务使用所选生图模型，任务创建后锁定。<a href="#/settings">管理模型配置</a></small></div>
           <div className="form-field"><label htmlFor="agent-goal">制作目标</label><textarea id="agent-goal" required rows={7} maxLength={8000} value={goal} onChange={e => setGoal(e.target.value)} placeholder="例如：为这款凉棚做 1 张亚马逊主图，白底，保持结构、颜色和连接件不变；不要编造尺寸或认证。" /><small>{goal.length} / 8000 字符。写清平台、用途、必须保持与必须避免的事项。</small></div>
           <div className="form-field"><label htmlFor="agent-reference">参考图（选填，1 张）</label><input id="agent-reference" type="file" accept="image/png,image/jpeg,image/webp" onChange={e => setReference(e.target.files?.[0])} /><small>{reference ? `已选择 ${reference.name}` : '用于商品结构核对或作为编辑参考；不提供则 Agent 只能生成新图。'}</small></div>
           <div className="skill-import-row">
@@ -171,7 +175,7 @@ export default function AgentStudio() {
     {detail && <div className="connection-card agent-detail">
       <div className="section-heading"><div><h3>任务详情</h3><p className="form-footnote">{detail.id} · 创建 {formatTaskTime(detail.created_at)}{detail.finished_at ? ` · 结束 ${formatTaskTime(detail.finished_at)}` : ''}</p></div><span className={statusClass(detail)}>{agentStatusLabels[detail.status] || detail.status}</span></div>
       <p className="agent-goal">{detail.goal}</p>
-      <p className="form-footnote">模型：{detail.model_name || '未记录'} · 视觉：{detail.vision_model_name || '未配置'} · 步数 {detail.steps_count}/{detail.max_steps} · 出图 {detail.image_calls}/{detail.max_images}</p>
+      <p className="form-footnote">文字：{detail.model_name || '未记录'} · 生图：{detail.image_model_name || '未记录'} · 视觉：{detail.vision_model_name || '未配置'} · 步数 {detail.steps_count}/{detail.max_steps} · 出图 {detail.image_calls}/{detail.max_images}</p>
       {(detail.summary || detail.error) && <p className={`feedback ${detail.status === 'succeeded' ? 'feedback-success' : 'feedback-warning'}`} role="status">{detail.summary || detail.error}</p>}
       {agentPending(detail) && <div className="form-actions"><button type="button" className="button-secondary cancel-button" disabled={busy} onClick={() => void cancel()}>取消任务</button></div>}
 

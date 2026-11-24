@@ -15,6 +15,9 @@ export default function ImageSettings(){
   const [config,setConfig]=useState<ImageConfiguration|null>(null);
   const [name,setName]=useState('我的模型服务');const [url,setUrl]=useState('https://ai-gateway.valsun.cn/v1');const [key,setKey]=useState('');
   const [connections,setConnections]=useState<ModelConfig[]>([]);
+  const [imageModel,setImageModel]=useState('gpt-image-2.5-sunburst');const [imageModels,setImageModels]=useState<string[]>(['gpt-image-2.5-sunburst']);
+  const [imageCandidates,setImageCandidates]=useState<string[]>([]);const [manualImageModel,setManualImageModel]=useState('');
+  const [imageModelMessage,setImageModelMessage]=useState('');const [imageModelError,setImageModelError]=useState('');
   const [textConfigId,setTextConfigId]=useState('');const [textModel,setTextModel]=useState('');const [visionModel,setVisionModel]=useState('');
   const [candidates,setCandidates]=useState<string[]>([]);const [modelMessage,setModelMessage]=useState('');const [modelError,setModelError]=useState('');
   const [loading,setLoading]=useState(true);const [busy,setBusy]=useState('');const [dirty,setDirty]=useState(false);
@@ -31,7 +34,7 @@ export default function ImageSettings(){
     const current=startTaskPolling<ImageConfiguration|null>({
       load:async signal=>{const response=await apiFetch('/api/image-configs',{signal,cache:'no-store'});const value=await response.json();if(!response.ok)throw new Error(typeof value.detail==='string'?value.detail:'图片配置读取失败。');return value;},
       pending:value=>!!value&&[value.generation.status,value.edit.status].some(activeStatus),
-      onData:value=>{setConfig(value);setLoadError('');if(!dirtyRef.current&&value){setName(value.name);setUrl(value.base_url);setTextConfigId(value.text_config_id||'');setTextModel(value.text_model_name||'');setVisionModel(value.vision_model_name||'');}},
+      onData:value=>{setConfig(value);setLoadError('');if(!dirtyRef.current&&value){setName(value.name);setUrl(value.base_url);setImageModel(value.model_name);setImageModels(value.model_names);setTextConfigId(value.text_config_id||'');setTextModel(value.text_model_name||'');setVisionModel(value.vision_model_name||'');}},
       onError:err=>setLoadError(err instanceof Error?err.message:'配置读取失败。'),onLoading:setLoading,
     });return()=>current.stop();
   },[attempt]);
@@ -42,7 +45,7 @@ export default function ImageSettings(){
   const submissionUnclear=Object.values(ambiguous).some(Boolean);
   async function save(event:FormEvent){
     event.preventDefault();if(busy||submissionUnclear)return;setBusy('save');setSaveError('');setSaved(false);
-    try{const value=await imageConfigRequest<ImageConfiguration>('',{name,base_url:url,api_key:key||null,text_model_name:textModel,vision_model_name:visionModel,text_config_id:textConfigId||null});setConfig(value);setKey('');setDirty(false);setSaved(true);setConnection(undefined);setConnectionError('');setAuthorized(false);setTasks({});setSubmitErrors({});requests.current={};setAttempt(v=>v+1);}
+    try{if(manualImageModel.trim())throw new Error('请先点击“添加模型”，再保存配置。');const value=await imageConfigRequest<ImageConfiguration>('',{name,base_url:url,api_key:key||null,model_name:imageModel,model_names:imageModels,text_model_name:textModel,vision_model_name:visionModel,text_config_id:textConfigId||null});setConfig(value);setKey('');setDirty(false);setSaved(true);setConnection(undefined);setConnectionError('');setAuthorized(false);setTasks({});setSubmitErrors({});requests.current={};setAttempt(v=>v+1);}
     catch(err){setSaveError(err instanceof Error?err.message:'保存失败。');}finally{setBusy('');}
   }
   async function readTextModels(){
@@ -51,6 +54,19 @@ export default function ImageSettings(){
       if(value.status==='ok'){setCandidates(value.models);setModelMessage(`已读取 ${value.models.length} 个模型，可选择或手动填写。`);}
       else setModelError(value.message);
     }catch(err){setModelError(err instanceof Error?err.message:'模型列表读取失败。');}finally{setBusy('');}
+  }
+  async function readImageModels(){
+    if(busy)return;setBusy('image-models');setImageModelError('');setImageModelMessage('');
+    try{const value=await imageConfigRequest<ProbeResult>('/models',{});
+      if(value.status==='ok'){setImageCandidates(value.models);setImageModelMessage(`已读取 ${value.models.length} 个模型，可选择或手动填写后添加。`);}
+      else setImageModelError(value.message);
+    }catch(err){setImageModelError(err instanceof Error?err.message:'生图模型列表读取失败。');}finally{setBusy('');}
+  }
+  function addImageModel(){
+    const model=manualImageModel.trim();setImageModelError('');
+    if(!model){setImageModelError('请选择或输入生图模型 ID。');return;}
+    if(!imageModels.includes(model)&&imageModels.length>=50){setImageModelError('最多保存 50 个生图模型。');return;}
+    setImageModels(previous=>[...new Set([...previous,model])]);setManualImageModel('');changeDraft();
   }
   async function testConnection(){
     if(busy)return;setBusy('connection');setConnection(undefined);setConnectionError('');
@@ -80,6 +96,7 @@ export default function ImageSettings(){
   const busyVerification=activeStatus(result?.status);
   const alternate=connections.find(item=>item.id===textConfigId);
   const textModels=[...new Set([...candidates,...(alternate?.model_names||[]),textModel].filter(value=>!!value&&!value.startsWith('gpt-image-')))];
+  const visionModels=[...new Set([...candidates,...(alternate?.model_names||[]),visionModel].filter(Boolean))];
   return <section className="image-settings settings-redesign">
     <div className="settings-image-heading"><div><h2>模型配置</h2><p>连接服务商，再设置图片与文字用途的模型。同一服务商共用地址和密钥。</p></div><a href="#/studio" className={ready?'button-primary':'button-secondary'}>前往图片创作 ↗</a></div>
     <div className={`settings-readiness ${ready?'settings-readiness-ready':''}`} role="status"><span className="settings-readiness-dot"/><strong>{loading&&!config?'读取配置中…':readiness}</strong><div className="settings-capability-statuses">{([{label:"图片生成",status:config?.generation.status},{label:"参考图编辑",status:config?.edit.status}]).map(item=><span key={item.label} className={`settings-capability capability-${item.status||"unverified"}`}><span>{item.label}</span><b>{capabilityLabel(item.status)}</b></span>)}</div></div>
@@ -91,11 +108,18 @@ export default function ImageSettings(){
           <div className="form-field"><label htmlFor="image-base-url">接口地址 <span>Base URL</span></label><input id="image-base-url" value={url} required type="url" spellCheck={false} onChange={e=>{setUrl(e.target.value);changeDraft();}} /><small>填写基础地址（通常以 /v1 结尾），无需添加生图路径。</small></div>
           <div className="form-field"><div className="settings-field-label"><label htmlFor="image-api-key">API Key</label><span className={config?.has_api_key?'settings-key-ready':'settings-key-missing'}>{config?.has_api_key?'当前密钥可用':'尚未提供密钥'}</span></div><input id="image-api-key" type="password" autoComplete="off" value={key} placeholder={config?.has_api_key?'留空继续使用当前密钥':'粘贴此服务商的 API Key'} onChange={e=>{setKey(e.target.value);changeDraft();}} /><small>密钥仅保留在服务内存，服务重启后需重新填写。</small></div>
         <section className="settings-purpose-models" aria-labelledby="purpose-models-title"><h3 id="purpose-models-title">模型设置</h3>
-          <div className="settings-purpose-image"><div className="settings-purpose-heading"><strong>图片生成与编辑</strong><span>固定规则</span></div><code>gpt-image-2.5-sunburst</code><div className="settings-purpose-tags"><span>high</span><span>auto</span><span>PNG</span></div><small>使用当前服务商连接，沿用标准生图规则。</small></div>
+          <div className="settings-purpose-image"><div className="settings-purpose-heading"><strong>图片生成与编辑</strong><span>自由选配</span></div>
+            <div className="form-field"><label htmlFor="image-default-model">默认生图模型</label><select id="image-default-model" value={imageModel} onChange={event=>{setImageModel(event.target.value);changeDraft();}}>{imageModels.map(model=><option key={model} value={model}>{model}</option>)}</select><small>图片创作和 Agent 默认使用此模型，每次创作也可切换。</small></div>
+            <div className="form-field"><label htmlFor="image-add-model">添加生图模型</label><div className="input-with-action"><input id="image-add-model" list="image-model-options" maxLength={200} value={manualImageModel} placeholder="选择或输入模型 ID" onChange={event=>{setManualImageModel(event.target.value);changeDraft();}} /><button type="button" className="button-secondary" onClick={addImageModel}>添加模型</button><button type="button" className="button-secondary" disabled={!!busy||!config?.has_api_key||url!==config.base_url||!!key} onClick={()=>void readImageModels()}>{busy==='image-models'?'读取中…':'读取生图模型'}</button></div><datalist id="image-model-options">{[...new Set([...imageCandidates,...imageModels])].map(model=><option key={model} value={model}/>)}</datalist><small>使用当前服务商连接。原始 imagegen 脚本支持 gpt-image-* 系列；模型还需支持所需生成、编辑及参数。</small></div>
+            <div className="model-picker" aria-label="已选生图模型">{imageModels.map(model=><button type="button" key={model} disabled={model===imageModel} aria-label={model===imageModel?`默认生图模型 ${model}`:`移除生图模型 ${model}`} onClick={()=>{setImageModels(previous=>previous.filter(item=>item!==model));changeDraft();}}>{model}{model===imageModel?' · 默认':' ×'}</button>)}</div>
+            {imageModels.some(model=>!model.startsWith('gpt-image-'))&&<p className="settings-model-error" role="alert">已选模型中包含原始 imagegen 脚本不支持的模型；提交时会明确拒绝，不会自动替换。</p>}
+            {imageModelMessage&&<p className="settings-model-message" role="status">{imageModelMessage}</p>}{imageModelError&&<p className="settings-model-error" role="alert">{imageModelError}</p>}
+            <div className="settings-purpose-tags"><span>high</span><span>auto</span><span>PNG</span></div>
+          </div>
           <div className="settings-purpose-text"><div className="settings-purpose-heading"><strong>文字分析</strong><span>按需设置</span></div>
             <div className="form-field"><label htmlFor="text-model-connection">使用的服务商连接</label><select id="text-model-connection" value={textConfigId} onChange={event=>{const id=event.target.value;const existing=connections.find(item=>item.id===id);setTextConfigId(id);setTextModel(existing?.model_name||'');setCandidates([]);setModelMessage('');setModelError('');changeDraft();}}><option value="">共用当前服务商连接</option>{connections.map(item=><option key={item.id} value={item.id}>{item.name} · {item.base_url}</option>)}</select><small>{textConfigId?`沿用已有连接：${alternate?.base_url||'连接不存在，请重新选择'}。地址和密钥保持不变。`:'与图片生成共用已填写的 Base URL 和 API Key，无需重复配置。'}</small></div>
             <div className="form-field"><label htmlFor="text-purpose-model">文字模型</label><div className="input-with-action"><input id="text-purpose-model" list="text-model-options" maxLength={200} value={textModel} placeholder="选择或输入文字模型 ID" onChange={event=>{setTextModel(event.target.value);changeDraft();}} /><button type="button" className="button-secondary" disabled={!!busy||(!textConfigId&&(!config?.has_api_key||url!==config.base_url||!!key))} onClick={()=>void readTextModels()}>{busy==='models'?'读取中…':'读取模型'}</button></div><datalist id="text-model-options">{textModels.map(model=><option key={model} value={model}/>)}</datalist><small>可留空，后续用于文字分析、策划与提示词功能。</small></div>
-<div className="form-field"><label htmlFor="vision-purpose-model">视觉模型（Agent 质检）</label><div className="input-with-action"><input id="vision-purpose-model" list="vision-model-options" maxLength={200} value={visionModel} placeholder="选择或输入支持图片输入的模型 ID" onChange={event=>{setVisionModel(event.target.value);changeDraft();}} /><button type="button" className="button-secondary" disabled={!!busy||(!textConfigId&&(!config?.has_api_key||url!==config.base_url||!!key))} onClick={()=>void readTextModels()}>{busy==='models'?'读取中…':'读取模型'}</button></div><datalist id="vision-model-options">{textModels.map(model=><option key={model} value={model}/>)}</datalist><small>{visionModel?'视觉模型将用于 Agent 出图后的自动质检。':'可留空；不填则 Agent 只能以“待人工审核”结束。'}</small></div>
+<div className="form-field"><label htmlFor="vision-purpose-model">视觉模型（Agent 质检）</label><div className="input-with-action"><input id="vision-purpose-model" list="vision-model-options" maxLength={200} value={visionModel} placeholder="选择或输入支持图片输入的模型 ID" onChange={event=>{setVisionModel(event.target.value);changeDraft();}} /><button type="button" className="button-secondary" disabled={!!busy||(!textConfigId&&(!config?.has_api_key||url!==config.base_url||!!key))} onClick={()=>void readTextModels()}>{busy==='models'?'读取中…':'读取模型'}</button></div><datalist id="vision-model-options">{visionModels.map(model=><option key={model} value={model}/>)}</datalist><small>{visionModel?'视觉模型将用于 Agent 出图后的自动质检。':'可留空；不填则 Agent 只能以“待人工审核”结束。'}</small></div>
             {modelMessage&&<p className="settings-model-message" role="status">{modelMessage}</p>}{modelError&&<p className="settings-model-error" role="alert">{modelError}</p>}
           </div>
         </section>

@@ -1,4 +1,4 @@
-"""Fixed image execution recipe, preserving provider-native PNG bytes."""
+"""Execute the selected image model while preserving provider-native PNG bytes."""
 import hashlib
 import io
 import json
@@ -24,13 +24,14 @@ def execute_cli(directory, profile, key, prompt, reference):
     if reference is not None and not reference_path.is_file():
         raise GenerationError('参考文件缺失，未调用编辑接口。')
     mode = 'edit' if reference is not None else 'generate'
-    manifest = {'rules': RULES, 'base_url': profile['base_url'], 'mode': mode, 'prompt_file': 'prompt.txt',
+    model = profile.get('model', MODEL)
+    manifest = {'rules': {**RULES, 'model': model}, 'base_url': profile['base_url'], 'mode': mode, 'prompt_file': 'prompt.txt',
                 'cli_sha256': hashlib.sha256(CLI.read_bytes()).hexdigest(),
                 'references': [{'file':'reference.png', 'role': 'edit_target', 'sha256': hashlib.sha256(reference_path.read_bytes()).hexdigest()}] if reference is not None else [],
                 'review': {'status':'pending', 'method':'human'}, 'native_pixels': None}
     (directory / 'execution.json').write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding='utf-8')
     command = [sys.executable, '-m', 'app.image_cli_launcher', str(diagnostic_path), mode,
-               '--model', MODEL, '--quality', 'high', '--size', 'auto', '--output-format', 'png', '--no-augment',
+               '--model', model, '--quality', 'high', '--size', 'auto', '--output-format', 'png', '--no-augment',
                '--n', '1', '--prompt-file', str(prompt_path), '--out', str(output)]
     if reference is not None: command.extend(['--image', str(reference_path)])
     env = dict(os.environ, OPENAI_BASE_URL=profile['base_url'], OPENAI_API_KEY=key, PYTHONUTF8='1')

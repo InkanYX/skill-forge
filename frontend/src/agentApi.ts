@@ -8,6 +8,7 @@ export interface AgentStep {
 export interface AgentRun {
   id: string; status: string; goal: string; skill_id: string; skill_version_id: string; config_id: string;
   model_name: string; vision_model_name: string; steps_count: number; image_calls: number;
+  image_model_name: string;
   max_steps: number; max_images: number; summary: string; error: string;
   created_at: string; updated_at: string; finished_at: string | null;
   steps: AgentStep[]; images: ImageRecord[];

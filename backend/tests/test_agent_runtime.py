@@ -96,11 +96,12 @@ def install_skill(client):
     return created.json()[0]
 
 
-def create_run(client, created, max_steps=20, max_images=6):
+def create_run(client, created, max_steps=20, max_images=6, image_model=''):
     response = client.post('/api/agent/runs', files={
         'payload': (None, json.dumps({
             'goal': '为主图做一张干净的白底商品图', 'skill_id': created['id'],
             'config_id': client.get('/api/image-configs').json()['id'],
+            'image_model_name':image_model,
             'max_steps': max_steps, 'max_images': max_images}))})
     assert response.status_code == 200, response.text
     return response.json()
@@ -184,6 +185,31 @@ def test_full_agent_loop_generates_views_and_finishes(setup):
         assert kinds == ['tool'] * 4
         assert session.scalars(select(AgentArtifact).where(AgentArtifact.run_id == run['id'])).one().kind == 'prompt'
     assert script.vision_calls == 1
+
+
+def test_agent_locks_selected_image_model_and_preserves_it_for_rework(setup):
+    client,store,engine,directory=setup
+    config=save_config(client)
+    names=['gpt-image-2.5-sunburst','gpt-image-2','gpt-image-1']
+    payload={'base_url':config['base_url'],'model_names':names}
+    assert client.put('/api/image-configs',json=payload).status_code==200
+    created=install_skill(client)
+    run=create_run(client,created,image_model='gpt-image-2')
+    assert run['image_model_name']=='gpt-image-2'
+    assert client.put('/api/image-configs',json={**payload,'model_name':'gpt-image-1'}).status_code==200
+    script=Scripted([
+        tool_call('write_prompt',{'content':'Task and selling objective: clean product shot.'}),
+        lambda messages:tool_call('generate_image',{'prompt_id':last_tool(messages)['prompt_id']}),
+        lambda messages:tool_call('view_image',{'job_id':last_tool(messages)['job_id'],'question':'检查结构'}),
+        tool_call('finish',{'summary':'已完成，自动质检通过。'}),
+    ])
+    run_now(engine,directory,store,run['id'],chat=script.chat,vision=script.vision,wait=fake_wait(engine,directory))
+    with Session(engine) as session:
+        assert session.get(AgentRun,run['id']).status=='succeeded'
+        job=session.scalar(select(ImageJob).where(ImageJob.agent_run_id==run['id']))
+        assert job.model_name==json.loads(job.execution_profile)['model']=='gpt-image-2'
+    rework=client.post('/api/agent/runs/'+run['id']+'/rework',json={'instruction':'保持结构，修改背景'})
+    assert rework.status_code==200 and rework.json()['image_model_name']=='gpt-image-2'
 
 
 def test_model_403_stops_without_retry(setup, monkeypatch):

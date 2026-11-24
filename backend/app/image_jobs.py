@@ -190,8 +190,14 @@ def create_jobs(engine, directory, config_id, model_name, prompt, size, request_
                 raise HTTPException(422, '部分图片合并后的要求过长，请精简公共要求或模板。')
         if standard_config:
             from app.image_configurations import MODEL
-            if model_name and model_name != MODEL: raise HTTPException(422, '图片模型固定为 ' + MODEL)
-            model_name = MODEL
+            model_name = model_name or standard_config.get('model', MODEL)
+            if model_name not in standard_config.get('model_names', [standard_config.get('model', MODEL)]):
+                raise HTTPException(422, '所选生图模型未保存在当前配置中，请先保存模型配置。')
+            if not model_name.startswith('gpt-image-'):
+                raise HTTPException(422, '原始 imagegen 脚本仅支持 gpt-image-* 模型；当前模型无法通过此脚本调用。')
+            standard_config = {**standard_config, 'model': model_name,
+                               'generation_verified': standard_config.get('generation_verified', False) and model_name == standard_config.get('model', MODEL),
+                               'edit_verified': standard_config.get('edit_verified', False) and model_name == standard_config.get('model', MODEL)}
             from types import SimpleNamespace
             config = SimpleNamespace(**{key: standard_config[key] for key in ('name','base_url')}, encrypted_key='')
             for plan in plans:

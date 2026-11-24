@@ -61,7 +61,7 @@ def guard(engine, run_id: str) -> None:
 SYSTEM_PROMPT = """你是 Skill Forge 的商品图制作 Agent。你按照已装入的技能规范工作，并调用工具完成从策划到出图的完整流程。
 
 硬性规则（不可更改，也不要在回复里讨论更改）：
-1. 图片模型、质量、尺寸、PNG 格式和 no-augment 已由系统固定，你不能选择或建议更换。
+1. 图片模型由用户为本任务选择并锁定，质量、尺寸、PNG 格式和 no-augment 沿用系统规则；不得自行更换模型。
 2. 只能使用提供的工具。不能读取技能目录以外的文件，不能执行脚本，不能访问网络。
 3. 不得编造尺寸、材质、认证、性能、包含物或服务承诺；只使用用户提供或参考图中可确认的事实。
 4. 新图用 generate_image；基于已有结果修改用 edit_image。不得在应当编辑时改成无参考重画。
@@ -272,7 +272,7 @@ class Context:
         if use_reference and reference is None:
             raise AgentError('本任务没有可用的参考图。')
         request_id = str(uuid5(UUID(self.run.id), f'image-{self.image_calls + 1}'))
-        items = create_jobs(self.engine, self.directory, self.run.config_id, MODEL, prompt, 'default', request_id,
+        items = create_jobs(self.engine, self.directory, self.run.config_id, self.run.image_model_name, prompt, 'default', request_id,
                             reference, 1, source_job_id=source_job_id, standard_config=profile,
                             owner_id=self.owner)
         self.image_calls += 1
@@ -386,7 +386,7 @@ def execute_run(engine, directory: Path, configs: ImageConfigStore, run_id: str,
     except HTTPException as error:
         _complete(engine, run_id, 'failed', str(error.detail))
         return
-    system = SYSTEM_PROMPT + f'\n\n技能：{package.name}（版本 {version.version_label}）\n\n' + compiled
+    system = SYSTEM_PROMPT + f'\n\n本任务生图模型：{run.image_model_name}\n技能：{package.name}（版本 {version.version_label}）\n\n' + compiled
     reference = run_dir(directory, run_id) / 'reference.png'
     has_reference = reference.is_file()
     if not vision_model:
@@ -535,6 +535,7 @@ class RunInput(BaseModel):
     goal: str = Field(min_length=1, max_length=MAX_GOAL)
     skill_id: UUID
     config_id: UUID
+    image_model_name: str = Field(default='', max_length=200)
     max_steps: int = Field(default=20, ge=5, le=40)
     max_images: int = Field(default=6, ge=1, le=8)
 
@@ -551,6 +552,7 @@ def run_view(session: Session, row: AgentRun) -> dict:
     return {'id': row.id, 'status': row.status, 'goal': row.goal, 'skill_id': row.skill_id,
             'skill_version_id': row.skill_version_id, 'config_id': row.config_id,
             'model_name': row.model_name, 'vision_model_name': row.vision_model_name,
+            'image_model_name': row.image_model_name,
             'steps_count': row.steps_count, 'image_calls': row.image_calls,
             'max_steps': row.max_steps, 'max_images': row.max_images,
             'summary': row.summary, 'error': row.error,
@@ -597,6 +599,11 @@ def build_agent_router(engine, directory: Path, configs: ImageConfigStore) -> AP
         current = configs.get(request.state.image_owner)
         if not current or current['id'] != str(data.config_id):
             raise HTTPException(422, '请先在个人模型配置中保存图片服务。')
+        image_model = data.image_model_name.strip() or current['model_name']
+        if image_model not in current['model_names']:
+            raise HTTPException(422, '所选生图模型未保存在当前配置中，请先保存模型配置。')
+        if not image_model.startswith('gpt-image-'):
+            raise HTTPException(422, '原始 imagegen 脚本仅支持 gpt-image-* 模型；当前模型无法通过此脚本调用。')
         configs.snapshot(request.state.image_owner, str(data.config_id))
         try:
             base_url, key, model = configs.resolve_text(request.state.image_owner)
@@ -619,6 +626,7 @@ def build_agent_router(engine, directory: Path, configs: ImageConfigStore) -> AP
         run = AgentRun(id=run_id, owner_id=request.state.image_owner, skill_id=skill_id,
                        skill_version_id=version_id, config_id=str(data.config_id), status='queued',
                        goal=data.goal.strip(), model_name=model, vision_model_name=vision_model,
+                       image_model_name=image_model,
                        steps_count=0, image_calls=0, max_steps=data.max_steps, max_images=data.max_images,
                        error='', summary='', created_at=now(), updated_at=now())
         with Session(engine) as session, session.begin():
@@ -677,6 +685,7 @@ def build_agent_router(engine, directory: Path, configs: ImageConfigStore) -> AP
                            skill_version_id=previous.skill_version_id, config_id=previous.config_id,
                            status='queued', goal=goal, model_name=previous.model_name,
                            vision_model_name=previous.vision_model_name, steps_count=0, image_calls=0,
+                           image_model_name=previous.image_model_name,
                            max_steps=previous.max_steps, max_images=previous.max_images,
                            error='', summary='', created_at=now(), updated_at=now())
             source = run_dir(directory, previous.id) / 'reference.png'

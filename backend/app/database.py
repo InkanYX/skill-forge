@@ -123,6 +123,8 @@ class ImageConfiguration(Base):
     text_model_name: Mapped[str] = mapped_column(String(200), default='', server_default='')
     vision_model_name: Mapped[str] = mapped_column(String(200), default='', server_default='')
     text_config_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    model_name: Mapped[str] = mapped_column(String(200), default='gpt-image-2.5-sunburst', server_default='gpt-image-2.5-sunburst')
+    model_names: Mapped[str] = mapped_column(Text, default='["gpt-image-2.5-sunburst"]', server_default='["gpt-image-2.5-sunburst"]')
 
 
 class Product(OwnedRecord, Base):
@@ -227,6 +229,7 @@ class AgentRun(OwnedRecord, Base):
     goal: Mapped[str] = mapped_column(Text)
     model_name: Mapped[str] = mapped_column(String(200), default='')
     vision_model_name: Mapped[str] = mapped_column(String(200), default='')
+    image_model_name: Mapped[str] = mapped_column(String(200), default='gpt-image-2.5-sunburst', server_default='gpt-image-2.5-sunburst')
     steps_count: Mapped[int] = mapped_column(default=0)
     image_calls: Mapped[int] = mapped_column(default=0)
     max_steps: Mapped[int] = mapped_column(default=20)

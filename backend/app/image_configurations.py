@@ -24,17 +24,25 @@ class ImageConfigInput(BaseModel):
     name: str = Field(default='我的模型服务', min_length=1, max_length=80)
     base_url: str
     api_key: SecretStr | None = None
+    model_name: str | None = Field(default=None, max_length=200)
+    model_names: list[str] | None = Field(default=None, max_length=50)
     text_model_name: str = Field(default='', max_length=200)
     vision_model_name: str = Field(default='', max_length=200)
     text_config_id: UUID | None = None
 
-    @field_validator('text_model_name', 'vision_model_name')
+    @field_validator('model_name', 'text_model_name', 'vision_model_name')
     @classmethod
     def validate_text_model(cls, value):
+        if value is None: return value
         value = value.strip()
         if any(ord(char) < 32 for char in value):
             raise ValueError('模型 ID 不能包含控制字符。')
         return value
+
+    @field_validator('model_names')
+    @classmethod
+    def validate_image_models(cls, value):
+        return ConfigInput.valid_models(value) if value is not None else None
 
     @field_validator('base_url')
     @classmethod
@@ -68,9 +76,9 @@ class ImageConfigStore:
                 'task_id': row.task_id if row else None, 'updated_at': row.updated_at if row else None}
 
     def view(self, session, row):
-        return {'id': row.id, 'name': row.name, 'base_url': row.base_url, 'model_name': MODEL,
-                'model_names': [MODEL], 'has_api_key': bool(self.key(row.id, row.revision)),
-                'updated_at': row.updated_at, 'rules': RULES,
+        return {'id': row.id, 'name': row.name, 'base_url': row.base_url, 'model_name': row.model_name,
+                'model_names': json.loads(row.model_names), 'has_api_key': bool(self.key(row.id, row.revision)),
+                'updated_at': row.updated_at, 'rules': {**RULES, 'model': row.model_name},
                 'text_model_name': row.text_model_name, 'vision_model_name': row.vision_model_name,
                 'text_config_id': row.text_config_id,
                 'generation': self.result(session, row.generation_job_id), 'edit': self.result(session, row.edit_job_id)}
@@ -86,6 +94,13 @@ class ImageConfigStore:
         validated = ConfigInput(name=data.name, base_url=data.base_url, api_key=data.api_key)
         with self.lock, Session(self.engine) as session, session.begin():
             row = self.find(session, owner)
+            model = data.model_name if data.model_name is not None else row.model_name if row else MODEL
+            names = data.model_names if data.model_names is not None else json.loads(row.model_names) if row else [model]
+            if data.model_names is None and model not in names: names = [*names, model]
+            if not model or model not in names:
+                raise HTTPException(422, '请填写默认生图模型，并将它加入已选生图模型。')
+            if len(names) > 50:
+                raise HTTPException(422, '最多保存 50 个生图模型。')
             text_config_id = str(data.text_config_id) if data.text_config_id else None
             if 'text_config_id' in data.model_fields_set and text_config_id:
                 text_config = session.get(ModelConfiguration, text_config_id)
@@ -97,13 +112,14 @@ class ImageConfigStore:
             if not supplied and (not row or validated.base_url != row.base_url or not previous):
                 raise HTTPException(422, '请填写此服务商的 API Key；密钥只在当前服务运行期间保管。')
             key = supplied or previous
-            changed = not row or row.base_url != validated.base_url or (supplied is not None and supplied != previous)
+            changed = not row or row.base_url != validated.base_url or row.model_name != model or (supplied is not None and supplied != previous)
             if not row:
                 row = ImageConfiguration(id=str(uuid4()), owner=owner)
                 session.add(row)
             if changed:
                 row.revision = str(uuid4()); row.generation_job_id = row.edit_job_id = None
             row.name, row.base_url, row.updated_at = data.name, validated.base_url, now()
+            row.model_name, row.model_names = model, json.dumps(names, ensure_ascii=False)
             if 'text_model_name' in data.model_fields_set: row.text_model_name = data.text_model_name
             if 'vision_model_name' in data.model_fields_set: row.vision_model_name = data.vision_model_name
             if 'text_config_id' in data.model_fields_set: row.text_config_id = text_config_id
@@ -149,8 +165,9 @@ class ImageConfigStore:
             if row is None or row.owner != owner: raise HTTPException(404, '模型服务配置不存在，请在个人模型配置中保存。')
             if not self.key(row.id, row.revision): raise HTTPException(409, '运行时密钥未就绪，请重新填写 API Key。')
             return {'id': row.id, 'name': row.name, 'base_url': row.base_url, 'revision': row.revision,
+                    'model_names': json.loads(row.model_names),
                     'generation_verified': self.result(session, row.generation_job_id)['status'] == 'succeeded',
-                    'edit_verified': self.result(session, row.edit_job_id)['status'] == 'succeeded', **RULES}
+                    'edit_verified': self.result(session, row.edit_job_id)['status'] == 'succeeded', **RULES, 'model': row.model_name}
 
     def enqueue_verification(self, owner, kind, request_id, reference=None):
         with self.lock:
@@ -173,7 +190,7 @@ class ImageConfigStore:
                 return {'task_id': existing.task_id, 'job_id': existing.id}
         prompt = 'Create a simple red cube on a plain white background. No text or logos.' if kind == 'generate' else 'Edit only the background to light blue. Preserve the product shape, proportions, colour and all existing details. Do not add text or objects.'
         if kind == 'edit' and not reference: raise HTTPException(422, '请明确上传并授权本次编辑验证的参考图。')
-        items = create_jobs(self.engine, self.directory, profile['id'], MODEL, prompt, 'default', request_id, reference, 1, standard_config=profile)
+        items = create_jobs(self.engine, self.directory, profile['id'], profile['model'], prompt, 'default', request_id, reference, 1, standard_config=profile)
         with Session(self.engine) as session, session.begin():
             config = self.find(session, owner)
             if config.revision != profile['revision']: raise HTTPException(409, '配置已改变，请重新验证。')
