@@ -10,6 +10,7 @@ import io
 import json
 import re
 import shutil
+import yaml
 from pathlib import Path, PurePosixPath
 from zipfile import BadZipFile, ZipFile
 
@@ -52,7 +53,9 @@ def sha256_file(path: Path) -> str:
 
 def normalize_member(name: str) -> str:
     """Return a safe POSIX relative path or raise ImportRejected."""
-    value = name.replace('\\', '/').strip().lstrip('/')
+    value = name.replace('\\', '/').strip()
+    if value.startswith('/'):
+        raise ImportRejected('压缩包内不能包含绝对路径。')
     if not value:
         raise ImportRejected('压缩包内存在空文件名。')
     if re.match(r'^[A-Za-z]:', value):
@@ -193,38 +196,30 @@ def _unquote(value: str) -> str:
 
 
 def parse_frontmatter(text: str) -> dict:
-    lines = text.splitlines()
+    lines = text.lstrip('\ufeff').splitlines()
     if not lines or lines[0].strip() != '---':
         return {}
     end = next((index for index in range(1, len(lines)) if lines[index].strip() == '---'), None)
     if end is None:
-        return {}
-    root: dict = {}
-    stack: list[tuple[int, dict]] = [(0, root)]
-    for raw in lines[1:end]:
-        if not raw.strip() or raw.lstrip().startswith('#'):
-            continue
-        indent = len(raw) - len(raw.lstrip())
-        key, separator, value = raw.strip().partition(':')
-        if not separator or not key:
-            continue
-        while len(stack) > 1 and indent < stack[-1][0]:
-            stack.pop()
-        container = stack[-1][1]
-        value = value.strip()
-        if value:
-            container[key.strip()] = _unquote(value)
-        else:
-            child: dict = {}
-            container[key.strip()] = child
-            stack.append((indent + 2, child))
-    return root
+        raise ImportRejected('技能文件头缺少结束的 ---。')
+    try:
+        result = yaml.safe_load('\n'.join(lines[1:end])) or {}
+    except yaml.YAMLError as error:
+        raise ImportRejected('技能文件头不是有效的 YAML，请检查缩进、引号和字段格式。') from error
+    if not isinstance(result, dict):
+        raise ImportRejected('技能文件头必须是包含 name、description 等字段的对象。')
+    return result
 
 
 def _read_capped(path: Path) -> str:
     with path.open('rb') as handle:
         raw = handle.read(MAX_TEXT_BYTES + 1)
-    return raw[:MAX_TEXT_BYTES].decode('utf-8', errors='replace')
+    if len(raw) > MAX_TEXT_BYTES:
+        raise ImportRejected(f'文本文件超过读取上限：{path.name}；请拆分文件。')
+    try:
+        return raw.decode('utf-8-sig')
+    except UnicodeDecodeError as error:
+        raise ImportRejected(f'文件不是 UTF-8 编码：{path.name}；请转换编码后重新导入。') from error
 
 
 def find_skill_roots(package_root: Path) -> list[dict]:
@@ -238,17 +233,40 @@ def find_skill_roots(package_root: Path) -> list[dict]:
             skill_root, label = package_root, '.'
         else:
             skill_root, label = package_root / Path(directory), str(directory)
-        text = _read_capped(skill_root / 'SKILL.md')
+        entry_path = PurePosixPath(relative).name
+        text = _read_capped(skill_root / entry_path)
         meta = parse_frontmatter(text)
         metadata = meta.get('metadata') if isinstance(meta.get('metadata'), dict) else {}
         name = str(meta.get('name') or skill_root.name).strip()[:200]
         description = str(meta.get('description') or '').strip()
+        if any(ord(char) < 32 for char in name):
+            raise ImportRejected('技能名称不能包含换行或控制字符。')
         version = str(metadata.get('version') or meta.get('version') or '').strip() or '0.0.0'
         found.append({'root': label, 'path': skill_root, 'name': name,
                       'description': description, 'version_label': version[:64],
-                      'entry_text': text})
+                      'entry_text': text, 'entry_path': entry_path})
     found.sort(key=lambda item: item['root'])
     return found
+
+
+def wrap_entry(package_root: Path, relative: str) -> None:
+    """Explicitly chosen Markdown entry, preserving the user's original file."""
+    path = safe_join(package_root, normalize_member(relative))
+    if path.suffix.lower() not in {'.md', '.markdown', '.txt'} or not path.is_file():
+        raise ImportRejected('指定入口必须是导入包中存在的 Markdown 或文本文件。')
+    if (path.parent / 'SKILL.md').exists():
+        raise ImportRejected('该目录已有 SKILL.md，无需再指定入口。')
+    text = _read_capped(path)
+    meta = parse_frontmatter(text)
+    if not meta.get('name') or not meta.get('description'):
+        header = yaml.safe_dump({'name': meta.get('name') or path.stem,
+                                'description': meta.get('description') or f'使用 {path.stem} 中的任务规范'}, allow_unicode=True)
+        if meta:
+            lines = text.splitlines()
+            end = next(i for i in range(1, len(lines)) if lines[i].strip() == '---')
+            text = '\n'.join(lines[end + 1:])
+        text = f'---\n{header}---\n\n{text}'
+    (path.parent / 'SKILL.md').write_text(text, encoding='utf-8')
 
 
 def file_entries(skill_root: Path) -> list[dict]:
@@ -312,7 +330,11 @@ def verify_manifest(package_root: Path) -> dict:
             continue
         relative = row['path'].replace('\\', '/').lstrip('/')
         expected = row.get('sha256')
-        candidate = package_root / PurePosixPath(relative)
+        try:
+            candidate = safe_join(package_root, normalize_member(relative))
+        except ImportRejected:
+            missing.append(relative)
+            continue
         if not candidate.is_file():
             missing.append(relative)
         elif isinstance(expected, str) and sha256_file(candidate) != expected.lower():
@@ -339,4 +361,4 @@ def read_text(skill_root: Path, relative: str, offset: int = 0, limit: int = MAX
 def copy_tree(source: Path, destination: Path) -> None:
     if destination.exists():
         shutil.rmtree(destination)
-    shutil.copytree(source, destination)
+    shutil.copytree(source, destination, ignore=shutil.ignore_patterns(*SKIP_DIRS, '.DS_Store', 'Thumbs.db'))

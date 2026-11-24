@@ -63,7 +63,7 @@ def process_standard_one(store, executor=execute_cli, preparer=None, reviewer=No
             prompt = (preparer or prepare)(store, owner, profile, directory, requirements, reference)
             with Session(store.engine) as session, session.begin():
                 session.execute(update(ImageJob).where(ImageJob.id == identifier)
-                                .values(prompt=prompt, message='技能检查通过，正在调用图片接口', updated_at=now()))
+                                .values(prompt=prompt, message='制作方案已准备，正在调用图片接口', updated_at=now()))
         phase = 'image'
         if run_id and apply_skill:
             with Session(store.engine) as session, session.begin():
@@ -93,6 +93,17 @@ def process_standard_one(store, executor=execute_cli, preparer=None, reviewer=No
                           'provider_message': message, 'recorded_at': now()}
     except Exception:
         message = '执行中断或结果无法确认，请核对已有文件和服务商记录；未重试。'
+    for filename in ('skill-workflow.json', 'skill-read-log.json'):
+        record = directory / filename
+        if record.is_file():
+            try:
+                document = json.loads(record.read_text(encoding='utf-8'))
+            except (OSError, ValueError):
+                continue
+            result['skill_execution'] = {'method': document.get('planning_method', document.get('engine', 'rules')),
+                'used_skills': document.get('used_skills', []), 'files': document.get('files', []),
+                'reused_preparation': document.get('reused_preparation', False)}
+            break
     if phase == 'image' and status in ('succeeded', 'failed', 'unknown'):
         from app.model_capabilities import evidence, save_evidence
         save_evidence(store, owner, 'edit' if mode == 'edit' else 'generate', profile.get('model', ''),

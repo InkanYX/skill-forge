@@ -741,3 +741,54 @@ summary { cursor: pointer; color: #3e577c; }
   .model-check-consent { font-size:12px; }
   .model-connection-page .button-primary,.model-connection-page .button-secondary { font-size:13px; padding:10px 14px; }
 }
+
+/* Skill choice: automatic discovery with explicit overrides. */
+.creation-skill-choice { padding:20px 22px; background:#fff; border:1px solid #dce5f0; border-radius:10px; margin:0 0 24px; min-width:0; }
+.creation-skill-choice-heading { display:flex; align-items:center; justify-content:space-between; gap:14px; }
+.creation-skill-choice-heading>div { display:flex; align-items:center; flex-wrap:wrap; gap:12px; font-size:14px; }
+.creation-skill-choice-heading span { font-size:12px; color:#436da9; background:#edf3fd; padding:5px 9px; border-radius:5px; }
+.creation-skill-choice>p { color:#6d7f96; font-size:13px; line-height:1.8; margin:12px 0 0; }
+.creation-skill-options { margin-top:20px; padding-top:20px; border-top:1px solid #e5ebf4; }
+.creation-skill-mode { display:flex; flex-wrap:wrap; gap:20px; margin-bottom:18px; }
+.creation-skill-mode label,.creation-skill-extra { display:flex; align-items:center; gap:8px; font-size:13px; color:#4e6687; }
+.creation-skill-extra { margin-bottom:20px; line-height:1.8; align-items:flex-start; }
+.creation-skill-extra input { margin-top:4px; }
+.creation-skill-catalog { max-height:300px; overflow:auto; display:grid; gap:10px; }
+.creation-skill-option { display:flex; align-items:flex-start; gap:10px; padding:14px; background:#f9fbfe; border:1px solid #e3eaf4; border-radius:7px; }
+.creation-skill-option input { margin-top:3px; flex-shrink:0; }
+.creation-skill-option>span { min-width:0; }
+.creation-skill-option strong { display:block; font-size:13px; font-weight:550; overflow-wrap:anywhere; }
+.creation-skill-option small { display:block; color:#77879d; font-size:12px; line-height:1.8; margin-top:6px; overflow-wrap:anywhere; }
+.creation-selected-skills { display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; }
+.creation-selected-skills>span { padding:5px 8px; background:#f0f4fa; color:#526c90; border-radius:5px; font-size:12px; overflow-wrap:anywhere; }
+.creation-skill-links { display:flex; gap:18px; align-items:center; margin-top:16px; font-size:13px; color:#446caa; }
+.creation-skill-links button { padding:0; border:0; background:transparent; color:inherit; font-size:inherit; }
+.skill-execution-info { font-size:12px; color:#657c99; line-height:1.8; }
+.skill-execution-info summary { cursor:pointer; overflow-wrap:anywhere; }
+.skill-execution-info p { font-size:12px; }
+.skill-execution-info ul { padding-left:16px; max-height:260px; overflow:auto; }
+.skill-execution-info li { margin-bottom:10px; }
+.skill-execution-info code { font-size:11px; overflow-wrap:anywhere; }
+.skill-execution-info li>span { display:block; color:#8493a7; }
+@media(max-width:600px) { .creation-skill-choice { padding:16px; }.creation-skill-choice-heading { align-items:flex-start; }.creation-skill-choice-heading>button { flex-shrink:0; }.creation-skill-option { padding:12px; } }
+
+/* Import is upload-first; only unresolved information needs confirmation. */
+.skill-rules>summary { cursor:pointer; color:#526b8c; font-size:13px; }
+.skill-import-hint { font-size:14px; line-height:1.8; color:#61758f; margin:18px 0 10px; }
+.skill-import-help { font-size:12px; color:#7b8ba1; margin:0 0 22px; }
+.skill-import-help summary { cursor:pointer; }
+.skill-import-help p { line-height:1.9; padding:12px 14px; background:#f7f9fc; border-radius:7px; }
+.skill-import-results { display:grid; gap:16px; margin-top:18px; }
+.skill-import-result { min-width:0; border:1px solid #dce5f0; background:#fff; border-radius:9px; padding:18px; }
+.skill-import-check { display:flex; align-items:flex-start; gap:10px; font-size:13px; color:#506985; line-height:1.8; flex-wrap:wrap; }
+.skill-import-check input { width:15px; height:15px; margin:4px 0 0; accent-color:#426fd4; }
+.skill-import-check small { margin-left:auto; color:#8a7b5e; font-size:12px; }
+.skill-import-result-fields { display:grid; grid-template-columns:minmax(160px,.8fr) minmax(0,1.4fr); gap:18px; margin-top:18px; }
+.skill-import-result-fields .form-field { margin-bottom:0; }
+.skill-import-result-fields label { font-size:13px; }
+.skill-import-result-fields textarea { display:block; width:100%; min-width:0; font:inherit; font-size:13px; line-height:1.7; border:1px solid #ccd7e6; border-radius:7px; padding:11px 12px; resize:vertical; }
+.skill-import-source { display:block; font-size:12px; color:#8292a6; margin-top:14px; overflow-wrap:anywhere; }
+.skill-entry-choice { padding:20px; border:1px solid #dce5f0; background:#f7faff; border-radius:9px; margin-top:20px; }
+.skill-entry-choice h3 { margin:0 0 10px; font-size:15px; }
+.skill-entry-choice>p { font-size:13px; line-height:1.8; color:#6c809b; }
+@media(max-width:650px) { .skill-import-result-fields { grid-template-columns:1fr; }.skill-import-check small { width:100%; margin-left:25px; }.skill-import-result { padding:14px; } }

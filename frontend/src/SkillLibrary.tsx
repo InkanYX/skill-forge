@@ -2,8 +2,8 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useAuth } from './AuthGate';
 import { formatTaskTime } from './imageTaskApi';
 import {
-  activateVersion, confirmPackage, fileUrl, forkPackage, importTextSkill, listFiles, listPackages, listVersions,
-  readFile, uploadPackage,
+  activateVersion, confirmPackage, choosePackageEntry, fileUrl, forkPackage, importTextSkill, listFiles, listPackages, listVersions,
+  readFile, readResource, uploadPackage,
   type ImportPreview, type SkillFile, type SkillPackage, type SkillText, type SkillVersion,
 } from './skillPackageApi';
 
@@ -15,6 +15,8 @@ const kindLabels: Record<string, string> = {
 function bytes(value: number) {
   return value > 1024 * 1024 ? `${(value / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(value / 1024))} KB`;
 }
+
+const versionLabel = (value: string) => value === '0.0.0' ? '未标注' : value;
 
 function sourceLabel(source: string, full = false) {
   if (source === 'builtin') return full ? '应用内置' : '内置';
@@ -38,6 +40,7 @@ export default function SkillLibrary() {
   const [versions, setVersions] = useState<SkillVersion[]>([]);
   const [viewing, setViewing] = useState<SkillVersion>();
   const [files, setFiles] = useState<SkillFile[]>([]);
+  const [resources, setResources] = useState<SkillFile[]>([]);
   const [file, setFile] = useState<SkillText>();
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
@@ -48,12 +51,13 @@ export default function SkillLibrary() {
   const [archive, setArchive] = useState<File>();
   const [folder, setFolder] = useState<File[]>([]);
   const [checks, setChecks] = useState<Record<string, boolean>>({});
-  const [levels, setLevels] = useState<Record<string, 'core' | 'full'>>({});
+  const [drafts, setDrafts] = useState<Record<string, {name: string; description: string}>>({});
   const [importing, setImporting] = useState(false);
   const [format, setFormat] = useState<'zip' | 'folder' | 'text'>('zip');
   const [textName, setTextName] = useState('');
   const [textDescription, setTextDescription] = useState('');
   const [textContent, setTextContent] = useState('');
+  const [entryPath, setEntryPath] = useState('');
 
   async function load(preferId?: string) {
     setLoading(true);
@@ -81,7 +85,7 @@ export default function SkillLibrary() {
     }
   }, [importOpen]);
   useEffect(() => {
-    if (!selected) { setVersions([]); setFiles([]); setViewing(undefined); setFile(undefined); return; }
+    if (!selected) { setVersions([]); setFiles([]); setResources([]); setViewing(undefined); setFile(undefined); return; }
     let active = true;
     setFile(undefined);
     setViewing(selected.current_version || undefined);
@@ -90,6 +94,7 @@ export default function SkillLibrary() {
         if (!active) return;
         setVersions(value);
         setFiles(detail?.files || []);
+        setResources(detail?.resources || []);
       })
       .catch(err => { if (active) setError(err instanceof Error ? err.message : '技能详情读取失败'); });
     return () => { active = false; };
@@ -98,7 +103,7 @@ export default function SkillLibrary() {
   async function viewVersion(item: SkillVersion) {
     if (!selected) return;
     setBusy(true); setFile(undefined); setViewing(item);
-    try { setFiles((await listFiles(selected.id, item.id)).files); setNotice(`正在查看版本 ${item.version_label} 的文件。`); }
+    try { const detail = await listFiles(selected.id, item.id); setFiles(detail.files); setResources(detail.resources || []); setNotice(`正在查看版本 ${item.version_label} 的文件。`); }
     catch (err) { setError(err instanceof Error ? err.message : '版本文件读取失败'); }
     finally { setBusy(false); }
   }
@@ -133,16 +138,16 @@ export default function SkillLibrary() {
     finally { setBusy(false); }
   }
 
-  function pickArchive(value?: File) { setArchive(value); setFolder([]); setPreview(undefined); setError(''); }
+  function pickArchive(value?: File) { setArchive(value); setFolder([]); setPreview(undefined); setError(''); setEntryPath(''); }
   function pickFolder(list: FileList | null) {
     setFolder(list ? Array.from(list) : []);
-    setArchive(undefined); setPreview(undefined); setError('');
+    setArchive(undefined); setPreview(undefined); setError(''); setEntryPath('');
   }
 
   function pickFormat(value: 'zip' | 'folder' | 'text') {
     if (value === format) return;
     setFormat(value);
-    setArchive(undefined); setFolder([]); setPreview(undefined); setError('');
+    setArchive(undefined); setFolder([]); setPreview(undefined); setError(''); setEntryPath('');
   }
 
   async function readTextFile(file?: File) {
@@ -188,11 +193,11 @@ export default function SkillLibrary() {
   function closeImport() {
     if (importing || busy) return;
     setImportOpen(false);
-    setPreview(undefined); setArchive(undefined); setFolder([]);
+    setPreview(undefined); setArchive(undefined); setFolder([]); setEntryPath('');
   }
 
-  async function inspect(event: FormEvent) {
-    event.preventDefault();
+  async function inspect(event?: FormEvent) {
+    event?.preventDefault();
     if (busy) return;
     if (archive && archive.size > 20 * 1024 * 1024) {
       setError('压缩包不能超过 20 MB。'); return;
@@ -211,10 +216,11 @@ export default function SkillLibrary() {
         form.append('paths', JSON.stringify(folder.map(item => item.webkitRelativePath || item.name)));
         folder.forEach(item => form.append('files', item, item.name));
       }
+      if (entryPath.trim()) form.set('entry_path', entryPath.trim());
       const value = await uploadPackage(form);
       setPreview(value);
-      setChecks(Object.fromEntries(value.skills.map(item => [item.name, !item.same_content && !item.reserved])));
-      setLevels(Object.fromEntries(value.skills.map(item => [item.name, 'core' as const])));
+      setChecks(Object.fromEntries(value.skills.map(item => [item.root, !item.same_content && !item.reserved && !item.resource_only])));
+      setDrafts(Object.fromEntries(value.skills.map(item => [item.root, {name: item.name, description: item.description}])));
     } catch (err) { setError(err instanceof Error ? err.message : '导入检查失败'); }
     finally { setBusy(false); }
   }
@@ -222,9 +228,14 @@ export default function SkillLibrary() {
   async function confirm() {
     if (!preview) return;
     const selections = preview.skills
-      .filter(item => checks[item.name])
-      .map(item => ({ name: item.name, compile_level: levels[item.name] || 'core' as const }));
+      .filter(item => checks[item.root] && !!drafts[item.root]?.name.trim() &&
+        (!item.reserved || drafts[item.root].name.trim() !== item.name))
+      .map(item => ({ name: item.name, root: item.root, import_name: drafts[item.root]?.name.trim() || item.name,
+                     description: drafts[item.root]?.description || '', compile_level: 'core' as const }));
     if (!selections.length) { setError('请至少选择一个技能。'); return; }
+    if (new Set(selections.map(item => item.import_name)).size !== selections.length) {
+      setError('本次有重复的技能名称，请在识别结果中区分名称。'); return;
+    }
     setImporting(true); setError('');
     try {
       const result = await confirmPackage(preview.upload_id, selections);
@@ -235,6 +246,18 @@ export default function SkillLibrary() {
       await load(selected?.id);
     } catch (err) { setError(err instanceof Error ? err.message : '导入失败'); }
     finally { setImporting(false); }
+  }
+
+  async function resolveEntry() {
+    if (!preview || !entryPath || busy) return;
+    setBusy(true); setError('');
+    try {
+      const value = await choosePackageEntry(preview.upload_id, entryPath);
+      setPreview(value);
+      setChecks(Object.fromEntries(value.skills.map(item => [item.root, !item.same_content && !item.reserved && !item.resource_only])));
+      setDrafts(Object.fromEntries(value.skills.map(item => [item.root, {name: item.name, description: item.description}])));
+    } catch (err) { setError(err instanceof Error ? err.message : '说明文件读取失败'); }
+    finally { setBusy(false); }
   }
 
   const filtered = items.filter(item => `${item.name} ${item.description} ${item.source}`.toLowerCase().includes(search.toLowerCase()));
@@ -250,19 +273,19 @@ export default function SkillLibrary() {
     <p className="settings-intro">技能包是只读的制作规范。支持完整技能包（zip / 文件夹）和单文件文本技能；内置技能包对所有账号共享，你创建的个人技能包只归你使用，管理员可只读排障。</p>
     <p className="form-footnote">所有登录用户都可以新增技能包。新版本导入后需在详情中手动启用；已开始或历史任务始终使用当时的版本。</p>
 
-    <div className="skill-rules">
-      <strong>导入规则</strong>
+    <details className="skill-rules">
+      <summary>导入说明与文件限制</summary>
       <ul>
         <li>支持 zip 压缩包、文件夹，或直接粘贴一份文本技能；压缩包不超过 20 MB、1000 个文件、单文件不超过 5 MB。</li>
-        <li>完整技能目录必须有 <code>SKILL.md</code>，并在 frontmatter 中提供 <code>name</code> 与 <code>description</code>。</li>
+        <li>优先识别 <code>SKILL.md</code>；也可指定其他 Markdown 入口。名称与用途可从标准文件头读取。</li>
         <li>文本技能会生成只读的 <code>SKILL.md</code>，最多 20000 字符；修改内容会作为新版本，不覆盖旧版本。</li>
         <li>同名个人技能会作为新版本导入，不会覆盖旧版本；导入完成后需手动启用。</li>
         <li>内置技能名保留，个人技能不能覆盖；需要定制时请使用「复制为副本」。</li>
         <li>个人技能包仅创建者可见、可启用并可用于 Agent；管理员可只读查看，不能代为启用。</li>
-        <li>脚本、图片只存档不执行；Agent 只读取文本规范并调用系统工具。</li>
+        <li>保留完整导入包及公共资源；AI 按需读取文本，脚本只存档不执行。</li>
         <li>不支持符号链接、<code>../</code> 路径或绝对路径；拒绝不安全压缩包。</li>
       </ul>
-    </div>
+    </details>
 
     {!importOpen && error && <p className="feedback feedback-error" role="alert">{error}</p>}
     {notice && <p className="feedback feedback-success" role="status">{notice}</p>}
@@ -273,7 +296,7 @@ export default function SkillLibrary() {
         {loading && <p className="empty-config">正在读取…</p>}
         {filtered.map(item => <button type="button" key={item.id} className={`config-item ${selected?.id === item.id ? 'config-item-active' : ''}`} onClick={() => { setSelected(item); setNotice(''); setError(''); }}>
           <strong>{item.name}</strong>
-          <small>{item.current_version ? `当前版本 ${item.current_version.version_label}` : '尚未启用版本'} · {item.version_count} 个版本</small>
+          <small>{item.current_version ? `当前版本 ${versionLabel(item.current_version.version_label)}` : '尚未启用版本'} · {item.version_count} 个版本</small>
           <small>{sourceLabel(item.source)} · {scopeLabel(item, user.id)} · 只读</small>
         </button>)}
         {!loading && !filtered.length && <p className="empty-config">还没有可见的技能包。可在下方导入一个。</p>}
@@ -285,7 +308,7 @@ export default function SkillLibrary() {
           <dl className="skill-meta">
             <div><dt>来源</dt><dd>{sourceLabel(selected.source, true)}</dd></div>
             <div><dt>归属</dt><dd>{scopeLabel(selected, user.id)}</dd></div>
-            <div><dt>当前版本</dt><dd>{current ? `${current.version_label}（执行时按用途读取）` : '未启用'}</dd></div>
+            <div><dt>当前版本</dt><dd>{current ? `${versionLabel(current.version_label)}（执行时按需读取）` : '未启用'}</dd></div>
             <div><dt>文件</dt><dd>{current ? `${current.file_count} 个 · ${bytes(current.total_bytes)}` : '—'}</dd></div>
             <div><dt>更新时间</dt><dd>{formatTaskTime(selected.updated_at)}</dd></div>
           </dl>
@@ -299,7 +322,7 @@ export default function SkillLibrary() {
             <h3 className="skill-subhead">版本</h3>
             <div className="member-table-wrap"><table className="member-table"><thead><tr><th>版本</th><th>归档快照</th><th>文件</th><th>导入时间</th><th>状态</th></tr></thead><tbody>
               {versions.map(item => <tr key={item.id}>
-                <td><strong>{item.version_label}</strong><small>{item.compiled_chars.toLocaleString()} 字符</small></td>
+                <td><strong>{versionLabel(item.version_label)}</strong><small>{item.compiled_chars.toLocaleString()} 字符</small></td>
                 <td>{item.compile_level === 'full' ? '完整参考' : '核心'}</td>
                 <td>{item.file_count}</td>
                 <td>{formatTaskTime(item.created_at)}</td>
@@ -317,6 +340,7 @@ export default function SkillLibrary() {
               </button>
               <a className="skill-file-download" href={fileUrl(selected.id, viewing?.id || current.id, item.path, true)} download>下载</a>
             </li>)}</ul>
+            {resources.length > 0 && <details className="skill-input-details"><summary>同一导入包的公共资料与其他资源 · {resources.length} 个文件</summary><p className="form-footnote">保留原始相对路径，AI 可按需读取文本。脚本不执行。</p><ul className="skill-file-list">{resources.map(item => <li key={item.path}><button type="button" className="skill-file" disabled={!item.is_text || busy} onClick={async () => { if (!selected || !viewing) return; setBusy(true); try { setFile(await readResource(selected.id, viewing.id, item.path)); } catch (err) { setError(err instanceof Error ? err.message : '资源读取失败'); } finally { setBusy(false); } }}><span>{item.path}</span><small>{kindLabels[item.kind] || item.kind} · {bytes(item.size)}</small></button></li>)}</ul></details>}
             {file && <div className="skill-preview"><div className="section-heading"><strong>{file.path}</strong><span>{file.total_chars.toLocaleString()} 字符{file.truncated ? '（已截断）' : ''}</span></div><pre className="skill-content">{file.content}</pre></div>}
           </>}
         </> : <div className="product-welcome"><span className="step-icon">只读技能包</span><h3>导入一个技能包开始</h3><p>技能包包含 SKILL.md 与参考规范。导入后保留不可变版本，创作时按用途读取所需规则。</p></div>}
@@ -325,7 +349,7 @@ export default function SkillLibrary() {
 
     <dialog ref={importDialog} className={`product-dialog skill-import-dialog${format === 'text' ? ' skill-import-dialog-text' : ''}`} aria-labelledby="skill-import-title" onCancel={event => { event.preventDefault(); closeImport(); }}>
       <div className="product-dialog-heading">
-        <div><h2 id="skill-import-title">导入技能</h2><p className="settings-intro">上传后先检查识别结果，确认后才写入技能库。导入的技能归当前账号私有。</p></div>
+        <div><h2 id="skill-import-title">导入技能</h2><p className="settings-intro">直接上传现有文件，系统会识别技能和相关资料，再由你确认。</p></div>
         <button type="button" className="button-secondary" disabled={busy} onClick={closeImport} aria-label="关闭导入技能">关闭</button>
       </div>
       {error && <p className="feedback feedback-error" role="alert">{error}</p>}
@@ -341,7 +365,7 @@ export default function SkillLibrary() {
             <label className={`skill-import-option${format === 'folder' ? ' skill-import-option-active' : ''}`}>
               <input type="radio" name="skill-import-format" value="folder" checked={format === 'folder'} onChange={() => pickFormat('folder')} />
               <strong>文件夹</strong>
-              <small>直接选择整个技能目录</small>
+              <small>保留原有文件和目录</small>
             </label>
             <label className={`skill-import-option${format === 'text' ? ' skill-import-option-active' : ''}`}>
               <input type="radio" name="skill-import-format" value="text" checked={format === 'text'} onChange={() => pickFormat('text')} />
@@ -351,49 +375,15 @@ export default function SkillLibrary() {
           </div>
         </fieldset>
 
-        <div className={`skill-import-requirements${format === 'text' ? ' skill-import-requirements-text' : ''}`}>
-          <strong>{format === 'text' ? '文本技能说明' : '打包要求'}</strong>
-          {format === 'text' ? <ul>
-            <li>不需要 zip、文件夹或 <code>SKILL.md</code>，直接填写名称和正文即可。</li>
-            <li>名称必填，说明可选，正文最多 20000 字符。</li>
-            <li>可从 <code>.md</code> / <code>.txt</code> 文件导入内容，文件不超过 100 KB，导入后仍可编辑。</li>
-            <li>保存后会生成只读 <code>SKILL.md</code>；首次导入自动启用，内容变化会新增版本，需要手动启用。</li>
-          </ul> : <ul>
-            <li>至少包含一个 <code>SKILL.md</code>；每个含 <code>SKILL.md</code> 的目录算一个技能，可一次导入多个。</li>
-            <li><code>SKILL.md</code> 使用 UTF-8，开头是 <code>---</code> 包住的 frontmatter，并提供 <code>name</code> 与 <code>description</code>；建议写上 <code>metadata.version</code>。</li>
-            <li>{format === 'zip' ? '单个 zip 文件' : '所选文件夹'}总计不超过 20 MB、1000 个文件，单个文件不超过 5 MB。</li>
-            {format === 'folder' && <li>请选择技能目录本身（其中直接包含 <code>SKILL.md</code>）；相对路径会保留，外层文件夹可以保留。</li>}
-            <li>不能包含绝对路径、<code>../</code> 或符号链接；脚本和图片只存档，不会执行。</li>
-          </ul>}
-          {format !== 'text' && <details className="skill-import-example">
-            <summary>查看目录结构与 SKILL.md 示例</summary>
-            <pre>{`my-skill/
-├─ SKILL.md
-├─ references/
-│  ├─ prompt-writing-standard.md
-│  └─ quality-gate.md
-└─ templates/
-   └─ product.md
-
-SKILL.md 开头：
----
-name: my-skill
-description: 一句话说明这个技能
-metadata:
-  version: 1.0.0
----
-
-技能正文…`}</pre>
-          </details>}
-        </div>
-
+        <p className="skill-import-hint">{format === 'text' ? '粘贴制作要求，或从 Markdown / TXT 导入内容即可。' : '无需按固定目录重新打包。系统优先识别技能入口；说明文件不明确时，再让你选择。'}</p>
+        <details className="skill-import-help"><summary>文件限制与保存方式</summary><p>{format === 'text' ? '正文最多 20000 字符；从文件导入时限 100 KB。' : 'ZIP 或文件夹总计最多 20 MB、1000 个文件，单个文件最多 5 MB。文字资料需为 UTF-8，支持 BOM。'}原始资料和历史版本会保留，包内脚本不会自动执行。</p></details>
         {format === 'text' ? <div className="skill-text-form">
           <div className="skill-text-grid">
             <div className="form-field">
               <label htmlFor="text-skill-name">技能名称</label>
               <input id="text-skill-name" value={textName} maxLength={200} disabled={busy}
                      placeholder="例如：产品结构核对" onChange={e => setTextName(e.target.value)} />
-              <small>必填。内置技能名保留，不能覆盖。</small>
+              <small>用于在技能库中识别这份制作方法。</small>
             </div>
             <div className="form-field">
               <label htmlFor="text-skill-description">说明</label>
@@ -430,28 +420,24 @@ metadata:
           </>}
         </div>}
 
-        <div className="form-actions"><button className="button-primary" disabled={busy || importing}>
+        {!preview && <div className="form-actions"><button className="button-primary" disabled={busy || importing}>
           {format === 'text' ? (busy ? '保存中…' : '保存文本技能') : (busy ? '检查中…' : '上传并检查')}
-        </button></div>
+        </button></div>}
       </form>
 
       {preview && <div className="skill-import-preview">
-        <p className={preview.manifest.present && !preview.manifest.ok ? 'feedback feedback-warning' : 'form-footnote'}>
-          {preview.manifest.present ? (preview.manifest.ok ? `manifest.json 校验通过（${preview.manifest.checked} 项）。` : `manifest.json 校验不一致：缺失 ${preview.manifest.missing.length} 项、哈希不符 ${preview.manifest.mismatch.length} 项。仍可人工确认后导入。`) : '未提供 manifest.json；将按实际文件导入。'}
-        </p>
-        <div className="member-table-wrap"><table className="member-table"><thead><tr><th>选择</th><th>技能</th><th>内容</th><th>文本快照</th><th>状态</th><th>归档快照范围</th></tr></thead><tbody>
-          {preview.skills.map(item => <tr key={item.name}>
-            <td><input type="checkbox" aria-label={`导入 ${item.name}`} disabled={item.reserved} checked={!!checks[item.name]} onChange={e => setChecks(previous => ({ ...previous, [item.name]: e.target.checked }))} /></td>
-            <td><strong>{item.name}</strong><small>{item.description || '未填写说明'} · {item.version_label}</small></td>
-            <td>{item.file_count} 个文件 · {bytes(item.total_bytes)}</td>
-            <td>核心 {item.compiled.core_chars.toLocaleString()} / 完整 {item.compiled.full_chars.toLocaleString()}</td>
-            <td>{item.reserved ? <span className="member-inactive">内置名称保留</span> : item.same_content ? <span className="member-inactive">内容未变化</span> : item.is_upgrade ? <span className="member-active">将新增版本</span> : <span className="member-active">新技能</span>}</td>
-            <td><select value={levels[item.name] || 'core'} onChange={e => setLevels(previous => ({ ...previous, [item.name]: e.target.value as 'core' | 'full' }))}>
-              <option value="core">核心快照（推荐）</option><option value="full">完整参考快照</option>
-            </select></td>
-          </tr>)}
-        </tbody></table></div>
-        <div className="form-actions"><button type="button" className="button-secondary" disabled={importing} onClick={() => { setPreview(undefined); setArchive(undefined); setFolder([]); }}>重新选择</button><button type="button" className="button-primary" disabled={importing} onClick={() => void confirm()}>{importing ? '导入中…' : '确认导入'}</button></div>
+        {preview.manifest.present && !preview.manifest.ok && <p className="feedback feedback-warning">包内文件清单校验不一致：缺失 {preview.manifest.missing.length} 项、内容不符 {preview.manifest.mismatch.length} 项，请核对来源后再导入。</p>}
+        {preview.needs_entry ? <section className="skill-entry-choice"><h3>选择说明文件</h3><p>{preview.entry_candidates?.length ? '找到多份文档，请选择 AI 应先阅读的说明，其他资料也会保留。' : '没有找到 Markdown 或 TXT 说明。可以补充说明后重新上传，或切换到文本技能直接填写。'}</p>
+          {!!preview.entry_candidates?.length && <><div className="form-field"><label htmlFor="skill-entry-choice">先读取的说明</label><select id="skill-entry-choice" value={entryPath} onChange={event => setEntryPath(event.target.value)}><option value="">请选择文档</option>{preview.entry_candidates.map(item => <option key={item.path} value={item.path}>{item.path}</option>)}</select></div><button type="button" className="button-primary" disabled={!entryPath || busy} onClick={() => void resolveEntry()}>使用这份说明</button></>}
+        </section> : <><h3>确认识别结果</h3><p className="form-footnote">选择要加入技能库的内容，名称和用途可直接修改。无需填写版本号或整理文件结构。</p>
+          <div className="skill-import-results">{preview.skills.map(item => {
+            const draft = drafts[item.root] || {name: item.name, description: item.description};
+            const reserved = item.reserved && draft.name.trim() === item.name;
+            return <article className="skill-import-result" key={item.root}><label className="skill-import-check"><input type="checkbox" aria-label={`导入 ${item.name}（${item.root}）`} disabled={reserved || !draft.name.trim()} checked={!!checks[item.root] && !reserved} onChange={event => setChecks(previous => ({...previous, [item.root]: event.target.checked}))} /><span>{item.resource_only ? '运行工具资料' : '制作技能'} · {item.file_count} 个文件</span><small>{reserved ? '与内置技能同名，修改名称后可导入副本' : item.same_content && draft.name === item.name ? '内容未变化' : item.is_upgrade && draft.name === item.name ? '新增版本，稍后启用' : '可导入'}</small></label>
+              <div className="skill-import-result-fields"><div className="form-field"><label htmlFor={`import-name-${item.root}`}>名称</label><input id={`import-name-${item.root}`} maxLength={200} value={draft.name} onChange={event => { const name = event.target.value; setDrafts(previous => ({...previous, [item.root]: {...draft, name}})); if (name.trim() && name.trim() !== item.name) setChecks(previous => ({...previous, [item.root]: true})); }} /></div><div className="form-field"><label htmlFor={`import-description-${item.root}`}>用途说明 <span>帮助 AI 自动选择</span></label><textarea id={`import-description-${item.root}`} rows={2} maxLength={1000} value={draft.description} placeholder="例如：制作 A+ 场景模块时使用，保持产品结构并统一排版。" onChange={event => setDrafts(previous => ({...previous, [item.root]: {...draft, description: event.target.value}}))} /></div></div>
+              <small className="skill-import-source">原目录：{item.root === '.' ? '上传内容根目录' : item.root} · {bytes(item.total_bytes)}</small>
+            </article>;
+          })}</div><div className="form-actions"><button type="button" className="button-secondary" disabled={importing} onClick={() => { setPreview(undefined); setArchive(undefined); setFolder([]); setEntryPath(''); }}>重新选择</button><button type="button" className="button-primary" disabled={importing} onClick={() => void confirm()}>{importing ? '导入中…' : '确认导入'}</button></div></>}
       </div>}
     </dialog>
   </section>;

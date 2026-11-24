@@ -1,5 +1,6 @@
 import io
 import json
+import re
 from uuid import uuid4
 
 import pytest
@@ -26,8 +27,21 @@ def workflow(standard, monkeypatch):
 
     def chat(url, key, model, messages, *args, **kwargs):
         assert model == 'planning-model' and key == KEY
+        brief = next(json.loads(item['content'])['requirements'] for item in messages
+                     if item['role'] == 'user' and isinstance(item['content'], str) and item['content'].startswith('{'))
+        tool_messages = [item for item in messages if item['role'] == 'tool']
+        if not tool_messages:
+            wanted = 'amazon-a-plus' if 'A+' in brief else 'premium-product-image-workflow'
+            with Session(engine) as session:
+                package = session.query(SkillPackage).filter_by(name=wanted, source='builtin').one()
+            return {'tool_calls': [{'id': 'entry', 'type': 'function', 'function': {'name': 'read_file',
+                'arguments': json.dumps({'file_path': f'/skills/skill-{package.id}/SKILL.md'})}}]}
+        if len(tool_messages) == 1 and 'A+' not in brief:
+            original_root = re.search(r'/bundles/[0-9a-f-]+', tool_messages[0]['content']).group()
+            path = 'references/listing-image-requirements.md' if '主图' in brief else 'references/layout-design.md'
+            return {'tool_calls': [{'id': 'reference', 'type': 'function', 'function': {'name': 'read_file',
+                'arguments': json.dumps({'file_path': original_root + '/' + path})}}]}
         captured['planning'].append(messages)
-        brief = json.loads(messages[1]['content'])['requirements']
         return {'content': json.dumps({'status': 'ready', 'prompt': 'Task and selling objective: ' + brief
             + '\nReference roles: product identity reference.\nOutput: native PNG; preserve proportions.'})}
 
@@ -121,13 +135,13 @@ def test_set_routes_main_and_aplus_to_different_reference_documents(workflow):
     images = response.json()
     assert images[0]['execution_profile']['skill_workflow']['purpose'] == 'main-image'
     assert images[1]['execution_profile']['skill_workflow']['purpose'] == 'aplus'
-    assert images[1]['execution_profile']['skill_workflow']['companions'][0]['name'] == 'amazon-a-plus'
+    assert images[1]['execution_profile']['skill_workflow']['companions'] == []
     assert process_standard_one(store, fake_executor)
     assert process_standard_one(store, fake_executor)
-    first_context = captured['planning'][0][0]['content']
-    second_context = captured['planning'][1][0]['content']
-    assert 'listing-image-requirements.md' in first_context
-    assert 'amazon-a-plus' in second_context
+    first = client.get('/api/image-jobs/' + images[0]['id']).json()['execution_result']['skill_execution']
+    second = client.get('/api/image-jobs/' + images[1]['id']).json()['execution_result']['skill_execution']
+    assert any(item['path'].endswith('listing-image-requirements.md') for item in first['files'])
+    assert second['used_skills'][0]['name'] == 'amazon-a-plus'
 
 
 def test_missing_text_model_stops_before_paid_image_call(standard):

@@ -732,11 +732,20 @@ def run_view(session: Session, row: AgentRun, include_history: bool = True) -> d
     previous_ids = [item.id for item in history if item.id != row.id]
     previous_images = list(session.scalars(select(ImageJob).where(ImageJob.agent_run_id.in_(previous_ids))
                                           .order_by(ImageJob.task_index, ImageJob.created_at))) if previous_ids else []
+    skill_name, skill_version = package.name if package else '', version.version_label if version else ''
+    if images:
+        image_profile = json.loads(images[0].execution_profile or '{}')
+        workflow = image_profile.get('skill_workflow', {})
+        if workflow.get('catalog') and not image_profile.get('prepared_by_agent'):
+            loaded = {item['skill_id']: item for image in images
+                      for item in json.loads(image.execution_result or '{}').get('skill_execution', {}).get('used_skills', [])}
+            skill_name = '、'.join(item['name'] for item in loaded.values()) if loaded else '自动选择中' if workflow.get('selection_mode') == 'auto' else '指定技能待加载'
+            skill_version = '、'.join(item['version'] for item in loaded.values())
     return {'id': row.id, 'status': row.status, 'goal': row.goal, 'skill_id': row.skill_id,
             'conversation_id': conversation_id(row), 'parent_run_id': row.parent_run_id,
             'source_job_id': row.source_job_id, 'instruction': row.instruction, 'turn_index': row.turn_index,
             'skill_version_id': row.skill_version_id, 'config_id': row.config_id,
-            'skill_name': package.name if package else '', 'skill_version': version.version_label if version else '',
+            'skill_name': skill_name, 'skill_version': skill_version,
             'model_name': row.model_name, 'vision_model_name': row.vision_model_name,
             'steps_count': row.steps_count, 'image_calls': row.image_calls,
             'max_steps': row.max_steps, 'max_images': row.max_images,
@@ -870,7 +879,8 @@ def build_agent_router(engine, directory: Path, configs: ImageConfigStore) -> AP
                 if not data.instruction.strip(): raise HTTPException(422, '请填写修改要求。')
                 profile = configs.snapshot(previous.owner_id, previous.config_id)
                 profile.update(use_skill=True, workflow_owner=previous.owner_id,
-                               skill_choice={'skill_id': previous.skill_id, 'version_id': previous.skill_version_id})
+                               skill_choice=None if json.loads(source.execution_profile or '{}').get('skill_workflow', {}).get('catalog')
+                               else {'skill_id': previous.skill_id, 'version_id': previous.skill_version_id})
                 items = create_jobs(engine, directory, previous.config_id, source.model_name, data.instruction,
                                     source.size, str(uuid4()), None, 1, source_job_id=source.id,
                                     standard_config=profile, owner_id=previous.owner_id)

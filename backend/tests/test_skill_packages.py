@@ -199,7 +199,7 @@ def test_import_rejects_traversal_missing_entry_and_oversized_files(setup):
         assert traversal.status_code == 422 and '..' in traversal.json()['detail']
 
         missing = client.post('/api/skill-packages/import', files={'archive': ('x.zip', archive({'readme.md': b'# no skill'}), 'application/zip')})
-        assert missing.status_code == 422 and 'SKILL.md' in missing.json()['detail']
+        assert missing.status_code == 200 and missing.json()['skills'][0]['name'] == 'readme'
 
         big = archive({'a/SKILL.md': skill_md('big'), 'a/big.bin': b'0' * (5 * 1024 * 1024 + 1)})
         oversize = client.post('/api/skill-packages/import', files={'archive': ('x.zip', big, 'application/zip')})

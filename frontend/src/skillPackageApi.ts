@@ -16,10 +16,11 @@ export interface SkillFile {
   path: string; kind: string; size: number; sha256: string; is_text: boolean;
 }
 
-export interface SkillFileList { version: SkillVersion; files: SkillFile[] }
+export interface SkillFileList { version: SkillVersion; files: SkillFile[]; resources?: SkillFile[] }
 export interface SkillText { path: string; offset: number; total_chars: number; content: string; truncated: boolean }
 
 export interface ImportedSkill {
+  resource_only?: boolean;
   root: string; name: string; description: string; version_label: string; file_count: number;
   total_bytes: number; content_sha256: string; compiled: { core_chars: number; full_chars: number };
   files: { path: string; kind: string; size: number }[];
@@ -29,6 +30,7 @@ export interface ImportedSkill {
 
 export interface ImportPreview {
   upload_id: string; skills: ImportedSkill[];
+  needs_entry?: boolean; entry_candidates?: {path: string; name: string}[];
   manifest: { present: boolean; ok: boolean; missing: string[]; mismatch: string[]; checked: number; message?: string };
   limits: Record<string, number>;
 }
@@ -53,6 +55,7 @@ export async function skillPackageRequest<T>(path = '', init?: RequestInit): Pro
   const response = await apiFetch(`/api/skill-packages${path}`, { cache: 'no-store', ...init });
   const value = await response.json().catch(() => null);
   if (!response.ok) throw new Error(detail(value));
+  if (init?.method && init.method !== 'GET') window.dispatchEvent(new Event('skill-forge:skills-changed'));
   return value as T;
 }
 
@@ -77,6 +80,11 @@ export function readFile(id: string, versionId: string, path: string) {
   return skillPackageRequest<SkillText>(`/${id}/versions/${versionId}/files/${encoded}`);
 }
 
+export function readResource(id: string, versionId: string, path: string) {
+  const encoded = path.split('/').map(encodeURIComponent).join('/');
+  return skillPackageRequest<SkillText>(`/${id}/versions/${versionId}/resources/${encoded}`);
+}
+
 export function fileUrl(id: string, versionId: string, path: string, download = false) {
   const encoded = path.split('/').map(encodeURIComponent).join('/');
   return `/api/skill-packages/${id}/versions/${versionId}/files/${encoded}${download ? '?download=1' : ''}`;
@@ -90,7 +98,14 @@ export function uploadPackage(form: FormData) {
   return skillPackageRequest<ImportPreview>('/import', { method: 'POST', body: form });
 }
 
-export function confirmPackage(uploadId: string, selections: { name: string; compile_level: 'core' | 'full' }[]) {
+export function choosePackageEntry(uploadId: string, path: string) {
+  return skillPackageRequest<ImportPreview>('/import/entry', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({upload_id: uploadId, path}),
+  });
+}
+
+export function confirmPackage(uploadId: string, selections: { name: string; root?: string; import_name?: string; description?: string; compile_level: 'core' | 'full' }[]) {
   return skillPackageRequest<ConfirmResult[]>('/import/confirm', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ upload_id: uploadId, selections }),

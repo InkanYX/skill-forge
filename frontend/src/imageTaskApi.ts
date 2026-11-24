@@ -11,6 +11,8 @@ export interface ImageRecord {
   preview_url?: string | null; execution_profile?: Record<string, unknown> & {
     skill_workflow?: {primary: {name: string; version: string; version_id: string}; companions: {name: string; version: string}[]; purpose: string};
   }; execution_result?: {
+    skill_execution?: {method: string; used_skills: {name: string; version: string; skill_id: string}[];
+      files: {path: string; method?: string; chars?: number; error?: string}[]; reused_preparation?: boolean};
     native_pixels?: number[]; review?: {status: string; notes?: string};
     agent_review?: {status: 'passed' | 'rework' | 'uncertain'; summary: string; method: string;
       compared_reference: boolean; updated_at: string; checks: {item: string; status: string; detail: string}[]};

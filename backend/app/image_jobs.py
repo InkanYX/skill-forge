@@ -303,7 +303,10 @@ def create_jobs(engine, directory, config_id, model_name, prompt, size, request_
                     if source:
                         previous_workflow = json.loads(source.execution_profile or '{}').get('skill_workflow', {})
                         purpose_hint = edit_instruction if purpose_for(edit_instruction) != 'general' else previous_workflow.get('purpose', purpose_hint)
-                    profile['skill_workflow'] = snapshot_for(engine, directory, standard_config['workflow_owner'], plan['prompt'], inherited=primary_skill, purpose_hint=purpose_hint)
+                    profile['skill_workflow'] = snapshot_for(engine, directory, standard_config['workflow_owner'], plan['prompt'],
+                        selection=standard_config.get('skill_choice'),
+                        inherited=previous_workflow if source and previous_workflow.get('catalog') else primary_skill,
+                        purpose_hint=purpose_hint)
                     if source and not standard_config.get('skill_choice'):
                         from app.creation_skills import inherit_companions
                         profile['skill_workflow'] = inherit_companions(profile['skill_workflow'], json.loads(source.execution_profile or '{}').get('skill_workflow', {}))
@@ -415,9 +418,29 @@ def build_image_router(engine, directory: Path, image_configs=None):
         try:
             choice = json.loads(skill) if skill else None
             if choice is not None:
-                if not isinstance(choice, dict) or set(choice) - {'skill_id', 'version_id'} or not choice.get('skill_id'):
+                if not isinstance(choice, dict):
                     raise ValueError()
-                choice = {key: str(UUID(value)) for key, value in choice.items()}
+                if 'mode' in choice:
+                    if set(choice) - {'mode', 'skills', 'allow_auto'} or choice['mode'] not in ('auto', 'manual'):
+                        raise ValueError()
+                    selected = choice.get('skills', [])
+                    if not isinstance(selected, list) or len(selected) > 12 or (choice['mode'] == 'manual' and not selected):
+                        raise ValueError()
+                    normalized = []
+                    for item in selected:
+                        if not isinstance(item, dict) or set(item) - {'skill_id', 'version_id'} or not item.get('skill_id'):
+                            raise ValueError()
+                        normalized.append({key: str(UUID(value)) for key, value in item.items()})
+                    if choice['mode'] == 'auto' and normalized:
+                        raise ValueError()
+                    if not isinstance(choice.get('allow_auto', True), bool):
+                        raise ValueError()
+                    choice = {'mode': choice['mode'], 'skills': normalized,
+                              'allow_auto': choice.get('allow_auto', choice['mode'] == 'auto')}
+                else:
+                    if set(choice) - {'skill_id', 'version_id'} or not choice.get('skill_id'):
+                        raise ValueError()
+                    choice = {key: str(UUID(value)) for key, value in choice.items()}
         except (ValueError, TypeError, AttributeError):
             raise HTTPException(422, '制作技能参数无效。') from None
         return {**image_configs.snapshot(request.state.image_owner, str(identifier)), 'use_skill': True,

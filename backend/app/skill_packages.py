@@ -22,7 +22,7 @@ from app.database import SkillFile, SkillPackage, SkillVersion
 from app.skill_store import (
     MAX_PACKAGE_BYTES, ImportRejected, compile_context, content_fingerprint,
     copy_tree, extract_archive, file_entries, find_skill_roots, read_text,
-    safe_join, verify_manifest, write_uploads,
+    safe_join, verify_manifest, write_uploads, wrap_entry, SKIP_DIRS, parse_frontmatter, walk_files,
 )
 
 IMPORT_TTL = 24 * 3600
@@ -84,8 +84,50 @@ def imports_root(directory: Path) -> Path:
     return directory / 'skill-imports'
 
 
+def check_import_owner(stage: Path):
+    owner_file = stage / 'owner.json'
+    user = principal.get()
+    if user and (not owner_file.is_file() or json.loads(owner_file.read_text())['owner'] != user['id']):
+        raise HTTPException(404, '导入会话不存在或已过期，请重新上传。')
+
+
 def version_root(directory: Path, skill_id: str, version_id: str) -> Path:
     return skills_root(directory) / skill_id / version_id
+
+
+def import_fingerprint(source: Path, bundle: Path | None = None) -> str:
+    if bundle is None or source == bundle:
+        return content_fingerprint(file_entries(source))
+    # Shared docs and tools are part of a version too, even outside its skill directory.
+    value = content_fingerprint(file_entries(bundle)) + '\n' + source.relative_to(bundle).as_posix()
+    return hashlib.sha256(value.encode()).hexdigest()
+
+
+def preserve_bundle(directory: Path, source: Path) -> str:
+    fingerprint = content_fingerprint(file_entries(source))
+    root = directory / 'skill-bundles' / fingerprint
+    if not root.exists():
+        staged = root.with_name(f'.tmp-{uuid4().hex[:12]}')
+        shutil.copytree(source, staged, ignore=shutil.ignore_patterns(*SKIP_DIRS, '.DS_Store', 'Thumbs.db'))
+        try:
+            staged.rename(root)
+        except FileExistsError:
+            shutil.rmtree(staged)
+    return fingerprint
+
+
+def bundle_resources(directory: Path, skill_id: str, version_id: str):
+    metadata = version_root(directory, skill_id, version_id) / 'bundle.json'
+    if not metadata.is_file():
+        return None, []
+    value = json.loads(metadata.read_text(encoding='utf-8'))
+    identifier = value['bundle_id']
+    if len(identifier) != 64 or any(char not in '0123456789abcdef' for char in identifier):
+        raise HTTPException(422, '技能资源快照无效。')
+    root = directory / 'skill-bundles' / identifier
+    prefix = value['skill_root'].rstrip('/') + '/'
+    files = [item for item in file_entries(root) if value['skill_root'] != '.' and not item['path'].startswith(prefix)]
+    return root, files
 
 
 def unique_version_label(session: Session, package: SkillPackage, base: str, fingerprint: str) -> str:
@@ -103,7 +145,8 @@ def unique_version_label(session: Session, package: SkillPackage, base: str, fin
 
 
 def install_version(session: Session, directory: Path, package: SkillPackage, source_root: Path,
-                    label: str, level: str, created_by: str | None, note: str = '') -> SkillVersion:
+                    label: str, level: str, created_by: str | None, note: str = '',
+                    bundle_root: Path | None = None, entry_path: str = 'SKILL.md') -> SkillVersion:
     """Copy the raw tree, compile it, and record both.  Never mutates existing versions."""
     files = file_entries(source_root)
     if not files:
@@ -112,15 +155,19 @@ def install_version(session: Session, directory: Path, package: SkillPackage, so
     version_id = str(uuid4())
     target = version_root(directory, package.id, version_id)
     copy_tree(source_root, target / 'raw')
+    if bundle_root is not None:
+        bundle_id = preserve_bundle(directory, bundle_root)
+        (target / 'bundle.json').write_text(json.dumps({'bundle_id': bundle_id,
+            'skill_root': source_root.relative_to(bundle_root).as_posix()}, ensure_ascii=False), encoding='utf-8')
     compiled_dir = target / 'compiled'
     compiled_dir.mkdir(parents=True, exist_ok=True)
     (compiled_dir / 'context.md').write_text(compiled, encoding='utf-8')
     (compiled_dir / 'index.json').write_text(json.dumps(index, ensure_ascii=False, indent=2), encoding='utf-8')
     version = SkillVersion(
         id=version_id, skill_id=package.id, version_label=label, status='ready', compile_level=level,
-        content_sha256=content_fingerprint(files), compiled_sha256=hashlib.sha256(compiled.encode('utf-8')).hexdigest(),
+        content_sha256=import_fingerprint(source_root, bundle_root), compiled_sha256=hashlib.sha256(compiled.encode('utf-8')).hexdigest(),
         compiled_chars=len(compiled), file_count=len(files), total_bytes=sum(item['size'] for item in files),
-        entry_path='SKILL.md', created_at=now(), created_by=created_by, import_note=note,
+        entry_path=entry_path, created_at=now(), created_by=created_by, import_note=note,
     )
     session.add(version)
     for item in files:
@@ -158,18 +205,19 @@ def build_preview(directory: Path, engine, upload_id: str) -> dict:
     package_root = stage / 'package'
     if not package_root.is_dir():
         raise HTTPException(404, '导入会话不存在或已过期，请重新上传。')
+    check_import_owner(stage)
     try:
         found = find_skill_roots(package_root)
     except ImportRejected as error:
         raise HTTPException(422, str(error)) from None
-    if not found:
-        raise HTTPException(422, '没有找到 SKILL.md，无法识别技能。')
+    candidates = [{'path': path, 'name': PurePosixPath(path).stem} for path in walk_files(package_root)
+                  if PurePosixPath(path).suffix.lower() in {'.md', '.markdown', '.txt'}]
     skills = []
     user = principal.get()
     with Session(engine) as session:
         for item in found:
             files = file_entries(item['path'])
-            fingerprint = content_fingerprint(files)
+            fingerprint = import_fingerprint(item['path'], package_root)
             core, _ = compile_context(item['path'], files, 'core')
             full, _ = compile_context(item['path'], files, 'full')
             condition = import_filter(user)
@@ -181,6 +229,7 @@ def build_preview(directory: Path, engine, upload_id: str) -> dict:
             same = bool(current and current.content_sha256 == fingerprint)
             skills.append({
                 'root': item['root'], 'name': item['name'], 'description': item['description'],
+                'resource_only': any(part in {'runtime', 'tools'} for part in PurePosixPath(item['root']).parts),
                 'version_label': item['version_label'], 'file_count': len(files),
                 'total_bytes': sum(value['size'] for value in files),
                 'content_sha256': fingerprint,
@@ -192,18 +241,34 @@ def build_preview(directory: Path, engine, upload_id: str) -> dict:
                 'reserved': bool(existing and existing.source == 'builtin'),
                 'is_upgrade': bool(existing and existing.source != 'builtin' and not same),
             })
-    return {'upload_id': upload_id, 'skills': skills, 'manifest': verify_manifest(package_root),
+    return {'upload_id': upload_id, 'skills': skills, 'entry_candidates': candidates if not found else [],
+            'needs_entry': not bool(found), 'manifest': verify_manifest(package_root),
             'limits': SCHEMA_LIMITS}
 
 
 class Selection(BaseModel):
     name: str = Field(min_length=1, max_length=200)
+    root: str | None = Field(default=None, max_length=2048)
+    import_name: str | None = Field(default=None, min_length=1, max_length=200)
+    description: str | None = Field(default=None, max_length=1000)
     compile_level: Literal['core', 'full'] = 'core'
+
+    @field_validator('import_name')
+    @classmethod
+    def clean_name(cls, value):
+        if value is not None and (not value.strip() or any(ord(char) < 32 for char in value)):
+            raise ValueError('请填写不包含换行的技能名称。')
+        return value.strip() if value else value
 
 
 class ConfirmInput(BaseModel):
     upload_id: UUID
     selections: list[Selection] = Field(min_length=1, max_length=50)
+
+
+class EntryInput(BaseModel):
+    upload_id: UUID
+    path: str = Field(min_length=1, max_length=2048)
 
 
 class TextInput(BaseModel):
@@ -239,29 +304,39 @@ def confirm_import(directory: Path, engine, data: ConfirmInput) -> list[dict]:
     package_root = stage / 'package'
     if not package_root.is_dir():
         raise HTTPException(404, '导入会话不存在或已过期，请重新上传。')
-    found = {item['name']: item for item in find_skill_roots(package_root)}
+    check_import_owner(stage)
+    found = find_skill_roots(package_root)
     user = principal.get()
     owner = user['id'] if user else None
     created = []
+    target_names = [item.import_name or item.name for item in data.selections]
+    if len(target_names) != len(set(target_names)):
+        raise HTTPException(422, '本次导入存在重复名称，请在确认页区分技能名称。')
     try:
         with Session(engine) as session, session.begin():
             for selection in data.selections:
-                candidate = found.get(selection.name)
-                if candidate is None:
+                matches = [item for item in found if item['name'] == selection.name
+                           and (selection.root is None or item['root'] == selection.root)]
+                if not matches:
                     raise HTTPException(422, f'未找到技能：{selection.name}')
+                if len(matches) > 1:
+                    raise HTTPException(422, '存在同名技能入口，请指定对应目录后导入。')
+                candidate = matches[0]
+                target_name = selection.import_name or candidate['name']
+                description = selection.description.strip() if selection.description is not None else candidate['description']
                 files = file_entries(candidate['path'])
-                fingerprint = content_fingerprint(files)
+                fingerprint = import_fingerprint(candidate['path'], package_root)
                 condition = import_filter(user)
-                statement = select(SkillPackage).where(SkillPackage.name == candidate['name'])
+                statement = select(SkillPackage).where(SkillPackage.name == target_name)
                 if condition is not None:
                     statement = statement.where(condition)
                 package = session.scalar(statement)
                 if package is not None and package.source == 'builtin':
-                    raise HTTPException(422, f'「{candidate["name"]}」是内置技能名，不能导入同名个人技能；请修改技能名或使用“复制为副本”。')
+                    raise HTTPException(422, f'「{target_name}」是内置技能名，请在确认页修改名称后导入副本。')
                 status = 'created'
                 if package is None:
                     package = SkillPackage(
-                        id=str(uuid4()), name=candidate['name'], description=candidate['description'],
+                        id=str(uuid4()), name=target_name, description=description,
                         source='imported', owner_id=owner, is_readonly=True,
                         created_at=now(), updated_at=now(),
                     )
@@ -273,13 +348,16 @@ def confirm_import(directory: Path, engine, data: ConfirmInput) -> list[dict]:
                     status = 'version_added'
                     current = session.get(SkillVersion, package.current_version_id) if package.current_version_id else None
                     if current and current.content_sha256 == fingerprint:
+                        if description:
+                            package.description = description
                         created.append({'id': package.id, 'name': package.name, 'status': 'unchanged',
                                         'version': version_view(current)})
                         continue
                 label = unique_version_label(session, package, candidate['version_label'], fingerprint)
                 version = install_version(session, directory, package, candidate['path'], label,
-                                          selection.compile_level, owner)
-                package.description = candidate['description'] or package.description
+                                          selection.compile_level, owner, bundle_root=package_root,
+                                          entry_path=candidate['entry_path'])
+                package.description = description or package.description
                 package.updated_at = now()
                 if package.current_version_id is None:
                     package.current_version_id = version.id
@@ -302,6 +380,18 @@ def import_text_package(directory: Path, engine, data: TextInput) -> dict:
     """Create a normal immutable package from a single plain-text skill."""
     name = data.name.strip()
     content = data.content.strip()
+    try:
+        metadata = parse_frontmatter(content)
+    except ImportRejected as error:
+        raise HTTPException(422, str(error)) from None
+    if metadata:
+        lines = content.splitlines()
+        end = next(i for i in range(1, len(lines)) if lines[i].strip() == '---')
+        content = '\n'.join(lines[end + 1:]).strip()
+        if not content:
+            raise HTTPException(422, '技能正文不能为空。')
+    version_info = metadata.get('metadata') if isinstance(metadata.get('metadata'), dict) else {}
+    source_version = str(version_info.get('version') or metadata.get('version') or '1.0.0')
     supplied = ' '.join(data.description.split())[:1000]
     user = principal.get()
     owner = user['id'] if user else None
@@ -320,14 +410,14 @@ def import_text_package(directory: Path, engine, data: TextInput) -> dict:
                 raise HTTPException(409, '该名称已被其他账号占用，请换一个名称。')
             # Keep the existing description when a re-import omits it, so identical
             # content stays byte-identical instead of producing a spurious version.
-            description = supplied or (package.description if package else '')
+            description = supplied or str(metadata.get('description') or '') or (package.description if package else '')
             if not description:
                 description = ' '.join(content.splitlines()[0].split()).lstrip('#').strip()[:200]
             markdown = (
                 '---\n'
                 f'name: {_frontmatter_value(name)}\n'
                 f'description: {_frontmatter_value(description)}\n'
-                'metadata:\n  version: "1.0.0"\n'
+                f'metadata:\n  version: {_frontmatter_value(source_version)}\n'
                 '---\n\n'
                 f'{content}\n'
             )
@@ -348,7 +438,7 @@ def import_text_package(directory: Path, engine, data: TextInput) -> dict:
                 if current and current.content_sha256 == fingerprint:
                     return {'id': package.id, 'name': package.name, 'status': 'unchanged',
                             'version': version_view(current)}
-            label = unique_version_label(session, package, '1.0.0', fingerprint)
+            label = unique_version_label(session, package, source_version, fingerprint)
             version = install_version(session, directory, package, package_root, label,
                                       data.compile_level, owner, note='文本技能导入')
             package.description = description or package.description
@@ -434,7 +524,7 @@ def build_skill_router(engine, directory: Path) -> APIRouter:
     @router.get('/limits')
     def limits():
         return {**SCHEMA_LIMITS, 'compile_levels': ['core', 'full'],
-                'rules': ['每个技能必须有 SKILL.md 与 name/description', '导入后只读',
+                'rules': ['直接上传现有资料，自动识别或确认入口', '名称与用途可在确认页补充', '导入后只读',
                           '脚本只存档不执行', '内置技能名保留，个人技能不能覆盖',
                           '个人技能包仅创建者可见、可启用；管理员可只读查看',
                           '文本技能会生成单文件 SKILL.md，后续修改作为新版本',
@@ -444,7 +534,8 @@ def build_skill_router(engine, directory: Path) -> APIRouter:
     def import_package(request: Request,
                        archive: Annotated[UploadFile | None, File()] = None,
                        files: Annotated[list[UploadFile], File()] = [],
-                       paths: Annotated[str, Form(max_length=200000)] = ''):
+                       paths: Annotated[str, Form(max_length=200000)] = '',
+                       entry_path: Annotated[str, Form(max_length=2048)] = ''):
         require_db()
         cleanup_imports(directory)
         upload_id = str(uuid4())
@@ -463,11 +554,35 @@ def build_skill_router(engine, directory: Path) -> APIRouter:
                         raise ValueError()
                 except ValueError:
                     raise HTTPException(422, '文件夹导入参数无效，请重新选择。') from None
-                write_uploads(target, [(path, upload.file.read()) for path, upload in zip(values, files)])
+                write_uploads(target, [(path, upload.file.read(MAX_PACKAGE_BYTES + 1)) for path, upload in zip(values, files)])
+            if entry_path.strip():
+                wrap_entry(target, entry_path.strip())
+            elif not find_skill_roots(target):
+                entries = [path for path in walk_files(target)
+                           if PurePosixPath(path).suffix.lower() in {'.md', '.markdown', '.txt'}]
+                if len(entries) == 1:
+                    wrap_entry(target, entries[0])
+            user = principal.get()
+            (stage / 'owner.json').write_text(json.dumps({'owner': user['id'] if user else None}), encoding='utf-8')
         except ImportRejected as error:
             shutil.rmtree(stage, ignore_errors=True)
             raise HTTPException(422, str(error)) from None
         return build_preview(directory, engine, upload_id)
+
+    @router.post('/import/entry')
+    def choose_entry(data: EntryInput):
+        require_db()
+        stage = imports_root(directory) / str(data.upload_id)
+        target = stage / 'package'
+        if not target.is_dir():
+            raise HTTPException(404, '导入会话不存在或已过期，请重新上传。')
+        check_import_owner(stage)
+        try:
+            if not find_skill_roots(target):
+                wrap_entry(target, data.path)
+        except ImportRejected as error:
+            raise HTTPException(422, str(error)) from None
+        return build_preview(directory, engine, str(data.upload_id))
 
     @router.post('/import/confirm')
     def confirm(data: ConfirmInput):
@@ -524,9 +639,27 @@ def build_skill_router(engine, directory: Path) -> APIRouter:
         with Session(engine) as session:
             rows = session.scalars(select(SkillFile).where(SkillFile.version_id == version.id)
                                    .order_by(SkillFile.path)).all()
-            return {'version': version_view(version),
+            _, resources = bundle_resources(directory, package.id, version.id)
+            return {'version': version_view(version), 'resources': resources,
                     'files': [{'path': row.path, 'kind': row.kind, 'size': row.size,
                                'sha256': row.sha256, 'is_text': row.is_text} for row in rows]}
+
+    @router.get('/{skill_id}/versions/{version_id}/resources/{path:path}')
+    def get_resource(skill_id: UUID, version_id: UUID, path: str, download: bool = False):
+        require_db()
+        package = get_package(skill_id)
+        version = get_version(package, str(version_id))
+        root, files = bundle_resources(directory, package.id, version.id)
+        if root is None or not any(item['path'] == path for item in files):
+            raise HTTPException(404, '同包资源不存在。')
+        if not download:
+            try:
+                return read_text(root, path)
+            except ImportRejected as error:
+                raise HTTPException(415, str(error)) from None
+        return FileResponse(safe_join(root, path), media_type='application/octet-stream',
+                            filename=PurePosixPath(path).name,
+                            headers={'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff'})
 
     @router.get('/{skill_id}/versions/{version_id}/files/{path:path}')
     def get_file(skill_id: UUID, version_id: UUID, path: str, download: bool = False):
@@ -583,6 +716,8 @@ def build_skill_router(engine, directory: Path) -> APIRouter:
             target = version_root(directory, package.id, str(uuid4()))
             copy_tree(origin / 'raw', target / 'raw')
             copy_tree(origin / 'compiled', target / 'compiled')
+            if (origin / 'bundle.json').is_file():
+                shutil.copyfile(origin / 'bundle.json', target / 'bundle.json')
             version = SkillVersion(
                 id=target.name, skill_id=package.id, version_label=source_version.version_label,
                 status='ready', compile_level=source_version.compile_level,

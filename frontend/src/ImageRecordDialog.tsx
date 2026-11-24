@@ -5,6 +5,7 @@ import { formatImageSize } from './ImageSizePicker';
 import TaskCancel from './TaskCancel';
 import ExperienceEditor from './ExperienceEditor';
 import RevisionTrail from './RevisionTrail';
+import SkillExecutionInfo from './SkillExecutionInfo';
 import { taskLabels as labels, type ImageRecord } from './imageTaskApi';
 
 export default function ImageRecordDialog({ item, onClose, onChanged }: { item?: ImageRecord; onClose: () => void; onChanged: () => void }) {
@@ -42,6 +43,7 @@ export default function ImageRecordDialog({ item, onClose, onChanged }: { item?:
         {selected.status === 'unknown' && <p className="feedback feedback-warning">请先核对服务商的生成与计费记录。本任务不会自动重试。</p>}
         {selected.status === 'succeeded' && <><button type="button" className="button-secondary" aria-pressed={selected.is_favorite} disabled={favoriteBusy || selected.can_edit === false} onClick={toggleFavorite}>{favoriteBusy ? '保存中…' : selected.is_favorite ? '取消收藏' : '收藏这张图'}</button>{favoriteError && <p className="feedback feedback-error" role="alert">{favoriteError}</p>}<ExperienceEditor readOnly={selected.can_edit === false} key={selected.id} jobId={selected.id} onDirtyChange={setCaseDirty} onSavingChange={setCaseBusy} onSaved={note => { setSelected(previous => previous ? { ...previous, case_id: note.id } : previous); onChanged(); }} /></>}
       </div><div className="artwork-record"><span className={`job-status job-${selected.status}`}>{labels[selected.status]}</span><dl className="job-details"><div><dt>模型</dt><dd>{selected.config_name} · {selected.model_name}</dd></div><div><dt>创建时间</dt><dd>{new Date(selected.created_at).toLocaleString('zh-CN')}</dd></div><div><dt>制作方式</dt><dd>{selected.mode === 'edit' ? '参考图编辑' : '文字生图'}</dd></div><div><dt>{selected.execution_profile?.backend ? "目标画幅" : "请求尺寸"}</dt><dd>{selected.execution_profile?.backend ? formatImageSize(selected.size) : selected.size === "default" ? "自动（未指定尺寸）" : `${selected.size.replace("x", " × ")} 像素`}</dd></div></dl>
+        <SkillExecutionInfo item={selected} />
         <details open><summary>完整制作要求</summary><p className="case-prompt">{selected.prompt}</p></details>
         {selected.product_snapshot.id && <details><summary>当时的产品资料 · {selected.product_snapshot.sku}</summary><p>{selected.product_snapshot.name} · 版本 {selected.product_snapshot.revision}</p><p>{selected.product_snapshot.color} · {selected.product_snapshot.dimensions}</p><p>{selected.product_snapshot.facts}</p><p>{selected.product_snapshot.notes}</p></details>}
         {selected.template_snapshot.id && <details><summary>当时的模板 · {selected.template_snapshot.name}</summary><p>版本 {selected.template_snapshot.revision}</p><p>{Object.entries(selected.template_snapshot.values || {}).map(([key, value]) => `${key}：${value}`).join('；')}</p><p>{selected.template_snapshot.prompt}</p><p>{selected.template_snapshot.skill_name && `Skill：${selected.template_snapshot.skill_name} · 版本 ${selected.template_snapshot.skill_revision}`}</p>{selected.template_snapshot.skill && <p>Skill：{selected.template_snapshot.skill}</p>}<p>{selected.template_snapshot.notes}</p></details>}
