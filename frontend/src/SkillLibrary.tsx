@@ -285,7 +285,7 @@ export default function SkillLibrary() {
           <dl className="skill-meta">
             <div><dt>来源</dt><dd>{sourceLabel(selected.source, true)}</dd></div>
             <div><dt>归属</dt><dd>{scopeLabel(selected, user.id)}</dd></div>
-            <div><dt>当前版本</dt><dd>{current ? `${current.version_label}（${current.compile_level === 'full' ? '完整参考' : '核心'}）` : '未启用'}</dd></div>
+            <div><dt>当前版本</dt><dd>{current ? `${current.version_label}（执行时按用途读取）` : '未启用'}</dd></div>
             <div><dt>文件</dt><dd>{current ? `${current.file_count} 个 · ${bytes(current.total_bytes)}` : '—'}</dd></div>
             <div><dt>更新时间</dt><dd>{formatTaskTime(selected.updated_at)}</dd></div>
           </dl>
@@ -297,7 +297,7 @@ export default function SkillLibrary() {
             </div>
 
             <h3 className="skill-subhead">版本</h3>
-            <div className="member-table-wrap"><table className="member-table"><thead><tr><th>版本</th><th>编译</th><th>文件</th><th>导入时间</th><th>状态</th></tr></thead><tbody>
+            <div className="member-table-wrap"><table className="member-table"><thead><tr><th>版本</th><th>归档快照</th><th>文件</th><th>导入时间</th><th>状态</th></tr></thead><tbody>
               {versions.map(item => <tr key={item.id}>
                 <td><strong>{item.version_label}</strong><small>{item.compiled_chars.toLocaleString()} 字符</small></td>
                 <td>{item.compile_level === 'full' ? '完整参考' : '核心'}</td>
@@ -319,7 +319,7 @@ export default function SkillLibrary() {
             </li>)}</ul>
             {file && <div className="skill-preview"><div className="section-heading"><strong>{file.path}</strong><span>{file.total_chars.toLocaleString()} 字符{file.truncated ? '（已截断）' : ''}</span></div><pre className="skill-content">{file.content}</pre></div>}
           </>}
-        </> : <div className="product-welcome"><span className="step-icon">只读技能包</span><h3>导入一个技能包开始</h3><p>技能包包含 SKILL.md 与参考规范。导入后系统会生成不可变的预编译快照，Agent 任务直接装入使用。</p></div>}
+        </> : <div className="product-welcome"><span className="step-icon">只读技能包</span><h3>导入一个技能包开始</h3><p>技能包包含 SKILL.md 与参考规范。导入后保留不可变版本，创作时按用途读取所需规则。</p></div>}
       </div>
     </div>
 
@@ -439,7 +439,7 @@ metadata:
         <p className={preview.manifest.present && !preview.manifest.ok ? 'feedback feedback-warning' : 'form-footnote'}>
           {preview.manifest.present ? (preview.manifest.ok ? `manifest.json 校验通过（${preview.manifest.checked} 项）。` : `manifest.json 校验不一致：缺失 ${preview.manifest.missing.length} 项、哈希不符 ${preview.manifest.mismatch.length} 项。仍可人工确认后导入。`) : '未提供 manifest.json；将按实际文件导入。'}
         </p>
-        <div className="member-table-wrap"><table className="member-table"><thead><tr><th>选择</th><th>技能</th><th>内容</th><th>编译</th><th>状态</th><th>编译档位</th></tr></thead><tbody>
+        <div className="member-table-wrap"><table className="member-table"><thead><tr><th>选择</th><th>技能</th><th>内容</th><th>文本快照</th><th>状态</th><th>归档快照范围</th></tr></thead><tbody>
           {preview.skills.map(item => <tr key={item.name}>
             <td><input type="checkbox" aria-label={`导入 ${item.name}`} disabled={item.reserved} checked={!!checks[item.name]} onChange={e => setChecks(previous => ({ ...previous, [item.name]: e.target.checked }))} /></td>
             <td><strong>{item.name}</strong><small>{item.description || '未填写说明'} · {item.version_label}</small></td>
@@ -447,7 +447,7 @@ metadata:
             <td>核心 {item.compiled.core_chars.toLocaleString()} / 完整 {item.compiled.full_chars.toLocaleString()}</td>
             <td>{item.reserved ? <span className="member-inactive">内置名称保留</span> : item.same_content ? <span className="member-inactive">内容未变化</span> : item.is_upgrade ? <span className="member-active">将新增版本</span> : <span className="member-active">新技能</span>}</td>
             <td><select value={levels[item.name] || 'core'} onChange={e => setLevels(previous => ({ ...previous, [item.name]: e.target.value as 'core' | 'full' }))}>
-              <option value="core">核心（推荐）</option><option value="full">完整参考</option>
+              <option value="core">核心快照（推荐）</option><option value="full">完整参考快照</option>
             </select></td>
           </tr>)}
         </tbody></table></div>

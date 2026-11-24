@@ -67,14 +67,15 @@ def read_bounded(response, limit: int, deadline: float) -> bytes:
     return bytes(value)
 
 
-def generate_image(base_url: str, api_key: str, model: str, prompt: str, size: str, reference: bytes | None) -> bytes:
+def generate_image(base_url: str, api_key: str, model: str, prompt: str, size: str, reference: bytes | None,
+                   request_parameters: dict | None = None, endpoint_path: str | None = None, preserve_native=False) -> bytes:
     started = time.monotonic()
-    endpoint = base_url + ("/images/edits" if reference else "/images/generations")
+    endpoint = base_url.rstrip('/') + (endpoint_path or ("/images/edits" if reference else "/images/generations"))
     phase, path, response_status = ('edit' if reference else 'generate'), urlsplit(endpoint).path, None
-    parameters = {"model": model, "prompt": prompt, "n": 1}
-    if size != "default":
+    parameters = {**(request_parameters if request_parameters is not None else {'n': 1}), 'model': model, 'prompt': prompt}
+    if request_parameters is None and size != "default":
         parameters["size"] = size
-    request_args = {"data": {key: str(value) for key, value in parameters.items()}, "files": {"image": ("reference.png", reference, "image/png")}} if reference else {"json": parameters}
+    request_args = {"data": {key: json.dumps(value, ensure_ascii=False) if isinstance(value, (dict, list, bool)) else str(value) for key, value in parameters.items()}, "files": {"image": ("reference.png", reference, "image/png")}} if reference else {"json": parameters}
     try:
         target, headers, extensions = pinned_url(endpoint)
         headers["Authorization"] = f"Bearer {api_key}"
@@ -109,6 +110,13 @@ def generate_image(base_url: str, api_key: str, model: str, prompt: str, size: s
             else:
                 raise GenerationError("服务商未返回有效图片内容，请核对服务商记录。", True)
         try:
+            if preserve_native:
+                if len(content) > MAX_IMAGE: raise GenerationError('图片过大。')
+                with Image.open(io.BytesIO(content)) as image:
+                    if image.format not in ('PNG', 'JPEG', 'WEBP') or image.width * image.height > MAX_PIXELS:
+                        raise GenerationError('返回图片格式或像素超出当前存储支持范围。')
+                    image.load()
+                return content
             return normalize_image(content)
         except GenerationError:
             raise GenerationError("服务商返回了无效或过大的图片；请核对服务商记录。", True) from None

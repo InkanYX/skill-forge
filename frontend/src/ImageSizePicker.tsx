@@ -48,7 +48,7 @@ export default function ImageSizePicker({ id, value, onChange, label = '画幅�
       <span aria-hidden="true">×</span>
       <div><label htmlFor={`${id}-height`}>高度比例</label><input id={`${id}-height`} type="number" min={1} max={maxPixels} step={1} required value={height} onChange={event => update(`${width}x${event.target.value}`)} /></div>
     </div>}
-    <small id={`${id}-help`}>{value === 'default' ? '接口固定使用 auto，实际像素以返回图片为准。' : '比例用于编写构图要求；接口仍使用 auto，不承诺返回指定像素。'}{showCustom && ' 宽高比例须为正整数。'}</small>
+    <small id={`${id}-help`}>{value === 'default' ? '原生尺寸由模型配置或服务商默认值决定。' : '比例用于构图要求；原生请求尺寸可在模型参数中配置，实际像素以返回为准。'}{showCustom && ' 宽高比例须为正整数。'}</small>
     {tooLarge && <small className="size-error" role="alert">总像素超过 2000 万，请减小宽度或高度。</small>}
   </div>;
 }

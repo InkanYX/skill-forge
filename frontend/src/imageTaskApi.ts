@@ -8,7 +8,13 @@ export interface ProviderDiagnostic {
 }
 export interface ImageRecord {
   owner_id?: string | null; can_edit?: boolean;
-  preview_url?: string | null; execution_profile?: Record<string, unknown>; execution_result?: {native_pixels?: number[]; review?: {status: string; notes?: string}};
+  preview_url?: string | null; execution_profile?: Record<string, unknown> & {
+    skill_workflow?: {primary: {name: string; version: string; version_id: string}; companions: {name: string; version: string}[]; purpose: string};
+  }; execution_result?: {
+    native_pixels?: number[]; review?: {status: string; notes?: string};
+    agent_review?: {status: 'passed' | 'rework' | 'uncertain'; summary: string; method: string;
+      compared_reference: boolean; updated_at: string; checks: {item: string; status: string; detail: string}[]};
+  };
   id: string; task_id: string; task_index: number; config_name: string; model_name: string;
   status: string; message: string; prompt: string; size: string; mode: string;
   created_at: string; updated_at: string; image_url: string | null; reference_url: string | null;
@@ -17,6 +23,7 @@ export interface ImageRecord {
   set_id: string | null; set_name: string; shot_name: string; diagnostic: ProviderDiagnostic | null;
 }
 export interface ImageTask {
+  agent_run_id?: string | null; turn_count?: number; agent_summary?: string;
   owner_id?: string | null; can_manage?: boolean;
   id: string; title: string; kind: string; status: string; model_name: string; config_name: string;
   created_at: string; updated_at: string; product_snapshot: ProductSnapshot; template_snapshot: TemplateSnapshot;
@@ -24,8 +31,8 @@ export interface ImageTask {
 }
 export interface ImageTaskDetail extends ImageTask { items: ImageRecord[] }
 export interface ImageTaskPage { items: ImageTask[]; total: number; page: number; page_size: number }
-export const taskLabels: Record<string, string> = { all: '全部状态', queued: '排队中', running: '生成中', succeeded: '已完成', partial: '部分完成', failed: '生成失败', unknown: '结果待确认', cancelled: '已取消' };
-export const kindLabels: Record<string, string> = { free: '自由创作', set: '成套制作', edit: '图片修改' };
+export const taskLabels: Record<string, string> = { all: '全部状态', queued: '排队中', running: '生成中', succeeded: '已完成', partial: '部分完成', failed: '生成失败', unknown: '结果待确认', cancelled: '已取消', needs_review: '待人工审核', needs_changes: '需要修改', limit_reached: '已达执行上限' };
+export const kindLabels: Record<string, string> = { free: '自由创作', set: '成套制作', edit: '图片修改', skill: '图片创作' };
 export const taskPending = (task: ImageTask) => ['queued', 'running'].includes(task.status);
 export function formatTaskTime(value: string) {
   return new Date(value).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });

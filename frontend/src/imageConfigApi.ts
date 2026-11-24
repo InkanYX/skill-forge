@@ -3,6 +3,11 @@ export interface ImageConfiguration {
   id: string; name: string; base_url: string; model_name: string; model_names: string[];
   text_model_name: string; text_config_id: string | null;
   vision_model_name?: string;
+  request_parameters: Record<string, unknown>; text_parameters: Record<string, unknown>; vision_parameters: Record<string, unknown>;
+  generation_path: string; edit_path: string;
+  capabilities: Record<string, {state: string; model: string; message: string; diagnostic?: {response_body?: string; http_status?: number}; checked_at: string}>;
+  model_settings: Record<string, {request_parameters: Record<string,unknown>;text_parameters:Record<string,unknown>;vision_parameters:Record<string,unknown>;capabilities?:ImageConfiguration['capabilities']}>;
+  auto_review: boolean; unified_models: boolean;
   has_api_key: boolean; updated_at: string;
   generation: {status: string; job_id: string | null; task_id: string | null; updated_at: string | null};
   edit: ImageConfiguration['generation'];

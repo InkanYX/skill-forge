@@ -123,6 +123,16 @@ class ImageConfiguration(Base):
     text_model_name: Mapped[str] = mapped_column(String(200), default='', server_default='')
     vision_model_name: Mapped[str] = mapped_column(String(200), default='', server_default='')
     text_config_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    model_name: Mapped[str] = mapped_column(String(200), default='', server_default='')
+    request_parameters: Mapped[str] = mapped_column(Text, default='{}', server_default='{}')
+    text_parameters: Mapped[str] = mapped_column(Text, default='{}', server_default='{}')
+    vision_parameters: Mapped[str] = mapped_column(Text, default='{}', server_default='{}')
+    capabilities: Mapped[str] = mapped_column(Text, default='{}', server_default='{}')
+    model_names: Mapped[str] = mapped_column(Text, default='[]', server_default='[]')
+    model_settings: Mapped[str] = mapped_column(Text, default='{}', server_default='{}')
+    auto_review: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text('false'))
+    generation_path: Mapped[str] = mapped_column(String(300), default='/images/generations', server_default='/images/generations')
+    edit_path: Mapped[str] = mapped_column(String(300), default='/images/edits', server_default='/images/edits')
 
 
 class Product(OwnedRecord, Base):
@@ -219,7 +229,13 @@ class SkillFile(Base):
 
 class AgentRun(OwnedRecord, Base):
     __tablename__ = 'agent_runs'
+    __table_args__ = (Index('uq_agent_conversation_turn', 'conversation_id', 'turn_index', unique=True),)
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    conversation_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    parent_run_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    source_job_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    turn_index: Mapped[int] = mapped_column(default=1, server_default=text('1'))
+    instruction: Mapped[str] = mapped_column(Text, default='', server_default='')
     skill_id: Mapped[str] = mapped_column(String(36))
     skill_version_id: Mapped[str] = mapped_column(String(36))
     config_id: Mapped[str] = mapped_column(String(36))

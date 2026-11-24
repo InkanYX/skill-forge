@@ -8,6 +8,7 @@ import { listModelOptions as listConfigs, type ModelOption as ModelConfig } from
 import { creativeRequest, type CreativeTemplate } from './creativeApi';
 import { productValues, type Product, type ProductAsset } from './productApi';
 import TemplateVariableField from './TemplateVariableField';
+import { useCreationSkill } from './CreationSkillContext';
 
 interface CreatedImage { id: string; task_id: string }
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : '请求失败，请检查服务状态。';
@@ -22,6 +23,7 @@ async function readResponse(response: Response): Promise<unknown> {
 }
 
 export default function ImageStudio({ active = true }: { active?: boolean }) {
+  const creationSkill = useCreationSkill();
   const [products, setProducts] = useState<Product[]>([]);
   const [productId, setProductId] = useState('');
   const [assets, setAssets] = useState<ProductAsset[]>([]);
@@ -54,7 +56,7 @@ export default function ImageStudio({ active = true }: { active?: boolean }) {
   const alive = useRef(true);
   const referenceInput = useRef<HTMLInputElement>(null);
   const selectedConfig = configs.find((item) => item.id === configId);
-  const canGenerate = !!selectedConfig?.has_api_key;
+  const canGenerate = !!selectedConfig?.has_api_key && creationSkill.ready;
 
   useEffect(() => {
     let active = true;
@@ -147,6 +149,7 @@ export default function ImageStudio({ active = true }: { active?: boolean }) {
     if (product) form.set('product', JSON.stringify({ id: product.id, revision: product.revision, asset_id: assetId || null }));
     if (reference) form.set('reference', reference);
     try {
+      creationSkill.append(form);
       const response = await apiFetch('/api/image-jobs/batch', { method: 'POST', body: form, signal: AbortSignal.timeout(30000) });
       const created = await readResponse(response) as CreatedImage[];
       if (!alive.current) return;

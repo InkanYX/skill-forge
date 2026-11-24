@@ -187,18 +187,27 @@ uv run python -m app.worker
 
 接口为 `GET /api/skill-packages`、`POST /api/skill-packages/import`、`POST /api/skill-packages/import/confirm`、`POST /api/skill-packages/import/text`、`GET /api/skill-packages/{id}/versions`、`POST /api/skill-packages/{id}/versions/{version_id}/activate`、`GET /api/skill-packages/{id}/versions/{version_id}/files`、`GET /api/skill-packages/{id}/versions/{version_id}/files/{path}`、`POST /api/skill-packages/{id}/fork`。迁移 `0015_skill_packages` 新增 `skill_packages`、`skill_versions`、`skill_files`、`agent_runs`、`agent_steps`、`agent_artifacts`，以及 `image_jobs.agent_run_id`、`image_configurations.vision_model_name`；`0016_private_skill_packages` 将技能包名称唯一性从全局改为“内置全局唯一 + 个人按 owner 唯一”。
 
-### Agent 制作（已实现）
+### 技能驱动的图片创作（已实现）
 
-`#/agent` 提供后端 Agent 任务。前端只提交目标、技能包（使用其**当前启用版本**）、模型配置、可选参考图和上限；可选技能包仅限内置技能与本人创建的个人技能。Agent 在后台工具循环中读取技能规范、策划并写入提示词、生成或编辑图片、调用视觉模型质检，直到 `finish`、触及上限或失败。前端只展示步骤、图片和结论，可取消任务或基于上一轮创建返工任务。
+`#/studio` 是统一入口，只保留自由创作与成套制作。所有新创作默认使用 `premium-product-image-workflow`，可切换到本人或内置的其它技能。技能不是可选模式：提交时固定主技能与配套技能的版本，按主图、场景、细节或 A+ 用途读取规则，先用已配置的文字模型整理完整提示词，通过预检后再调用图片接口。A+ 自动组合内置 `amazon-a-plus`。视觉模型可选，未配置时不阻止制作，图片标为待人工审核；服务商能力验证仍为可选，不属于创作流程。
 
-- 图片执行保持固定规则：`gpt-image-2.5-sunburst`、quality=high、size=auto、PNG、`--no-augment`、不自动重试；403 直接报告鉴权失败并停止。等待超时标记“结果待确认”，不重复提交同一张图。
+主技能版本、配套版本、用途与原始要求保存在图片执行快照中；`input-prompt.txt`、`skill-context.md`、`skill-workflow.json`、实际 `prompt.txt` 与 `automatic-review.json` 保留制作依据。相同账号、素材、要求、技能版本及模型配置下可复用分析和策划，每张生成图仍单独检查。缓存不保存 API Key。导入时生成的 core/full 文本快照用于查看归档，实际执行固定按用途读取版本内原始规则。
+
+每次制作保留独立执行轮次，同一次创作的修改归入一个任务。原始目标、本轮要求、父轮次和选定图片分开持久化；最新要求不会拼接后截断。可从生成记录打开 `#/studio?run={id}` 查看制作对话、图片版本和执行日志，并选择具体图片继续修改。旧 `#/agent` 链接兼容跳转到图片创作。
+
+- 图片执行读取任务快照中的用户模型与可选请求参数，不按模型名、前缀或 Skill 示例固定模型、quality、size 或格式。空参数对象不额外发送参数。403、超时和结果不明均保存真实诊断，不自动切模型或重复提交。
 - 工具集：`read_skill_file`、`write_prompt`、`generate_image`、`edit_image`、`view_image`、`finish`，外加确定性工具 `lint_prompt`、`count_copy`、`scan_copy`、`make_checklist`、`read_scenario`。技能内脚本不会被调用。
 - 不引入 Codex 沙箱或任意脚本执行；AI 只负责运行时读技能与策划，压缩包解析全部由规则完成。
 - 守卫：最大步数与出图次数、重复相同工具调用即停止、只能读取本技能版本目录内的文件、`edit_image`/`view_image` 只能操作本任务或本人生成的图片。Agent 生成的图片任务归属当前用户。
-- 视觉质检是独立的图片输入调用（`vision_model_name`）。未配置视觉模型时 `view_image` 不可用，Agent 只能以“待人工审核”结束，不能声称自动质检通过。
-- 任务创建只在后端执行；API Key 只在后端调用时使用，不进入模型上下文。返工创建新任务，沿用原技能版本、参考图与上一轮结论，历史任务保留。
+- 上传产品参考图后，配置好的视觉模型先分析实际图片，再将可见特征与不确定事项交给策划模型；省略 `use_reference` 时自动使用参考图，显式要求忽略参考图会在提交前停止。未配置视觉模型也可以制作，但必须保留参考图作为编辑输入并待人工审核。
+- `view_image` 同时检查生成图、产品参考图（如有）、制作目标与实际提示词。视觉输入均转换为最长边 1280 的 JPEG 预览，原生图片不覆盖。质检覆盖结构、数量、比例、材质、颜色、文案、光影与制作要求；缺项、无法确认或非结构化回复不能判为通过。
+- 后端根据实际图片与质检记录决定终态：`succeeded`（最终版本均自动质检通过）、`needs_review`（待人工审核）、`needs_changes`（质检需要修改）、`limit_reached`（执行达到上限）、`failed`、`unknown` 或 `cancelled`。未生成图片不能成功，已被新版本替代的旧图不计入最终版本质检。图片调用失败或结果不确定立即停止后续出图；取消状态不会被迟到的执行结果覆盖，尚未开始的子图片任务一并取消。
+- 多轮工具执行的参考图分析、提示词检查与质检原始响应另存为 `agent-runs/{id}/records/` 下的 JSON；自动质检保存到 `execution_result.agent_review`，与人工检查 `execution_result.review` 分开保留。
+- 任务创建只在后端执行；API Key 只在后端调用时使用，不进入模型上下文。本轮修改沿用固定的主技能版本和已有配套版本，使用选定原图继续编辑；待确认的付费调用会阻止重复提交。最多 30 轮、用户原始要求合计 32000 字符，超限明确拒绝提交，不静默截断。
 
-接口为 `POST /api/agent/runs`（multipart，`payload` JSON + 可选 `reference`）、`GET /api/agent/runs`、`GET /api/agent/runs/{id}`、`POST /api/agent/runs/{id}/cancel`、`POST /api/agent/runs/{id}/rework`、`GET /api/agent/runs/{id}/prompts/{prompt_id}`、`GET /api/agent/runs/{id}/artifacts`。Agent 任务由 API 进程内的 `AgentWorker` 消费，标准图片任务仍由 `StandardWorker` 消费；生产启动无需额外进程。
+现有 `/api/image-jobs`、`/batch`、`/sets` 创作接口统一接受可选的 `skill` JSON（`skill_id`、`version_id`）；省略时仍应用默认技能，修改任务则默认继承来源版本。`GET /api/agent/runs?latest=true` 按创作只返回最新轮次；`POST /api/agent/runs/{id}/rework` 接受 `instruction`、`source_job_id`。初次图片队列由 `StandardWorker` 按技能策划和质检；后续对话式修改由现有 `AgentWorker` 调用共用图片执行器。任务与步骤都归同一创作，生产无需额外进程。
+
+迁移 `0017_creation_conversations` 增加会话、父轮次、来源图片与独立修改要求。旧 Agent 记录各自保留为独立创作，并将其图片归集；不会猜测或改写旧文本中的父子关系。迁移只添加字段与索引并更新归集标识，保留原始图片和记录。生成记录的任务状态反映最新轮执行结果，所有历史输出和日志继续保留。
 
 ### 取消排队任务（已实现）
 
@@ -277,7 +286,13 @@ ZIP 中 `images/` 保存原始 PNG，按编号、SKU、图片用途与任务标�
 
 ### 标准图片接口（2026-11-23）
 
-个人模型配置统一管理“服务商连接”和“模型设置”，默认地址 `https://ai-gateway.valsun.cn/v1`，固定模型 `gpt-image-2.5-sunburst`、质量 high、接口尺寸 auto、PNG、每次一张与 `--no-augment`。业务页只选择图片接口，文字用途默认共用当前连接；也可选择已有其他服务商连接。旧连接保留原有加密存储方式，不复制密钥，也不进入生图模型列表。旧文字模型密钥未迁移给图片接口，也未自动上传到新的服务商。
+个人模型配置改为普通“连接＋模型列表”，无预填服务商或模型。模型 ID 可任意填写或从服务商读取，最多 100 个；无需设置文字、生图或质检等模型角色。当前模型用于直接调用和能力检查，图片创作可选择该连接已添加的其它模型。每个模型独立保存图片、文字与看图请求参数，空对象不发送额外参数；生图与编辑路径可配置。当前原生适配 OpenAI 兼容 Chat Completions／同步 Images 协议，其它服务商原生协议仍需对应适配器，不凭模型名称自动切换协议。
+
+文本、图片理解、生图与编辑分别保存 supported／unsupported／error 能力证据。仅服务商明确返回不支持对应操作的错误代码才判为 unsupported；401／403／404／429、参数错误、超时等只表示调用问题，不据此禁用其它能力。能力检查仅在主动点击或实际调用时发生，保存连接不调用模型。提供普通文字调用入口，生图不支持不影响文字调用。变更连接地址或密钥清除旧能力证据，改变参数清除相应检查结果。
+
+自动看图质检默认关闭，不需要额外配置质检模型；开启后使用当前模型，需要图片理解能力。质检由网站依据技能规范和本次制作要求组织，并非供应商内置的强制流程。纯图片模型缺少文字能力时，可直接使用原始要求与选定技能规则制作，不会强制要求另配文字模型；此路径会记录没有进行文字策划。旧角色配置保留用于历史兼容，新页面统一按模型列表使用。
+
+新增迁移 `0018_generic_models`、`0019_model_registry`。旧用户原先的固定模型与参数仅作为旧配置数据保留，均可编辑；新连接没有这些默认值。新任务使用通用协议执行器，支持模型别名，不经过原脚本的 GPT Image 名称前缀限制。原始 image_gen.py 与历史 CLI 快照仍保留，未修改原脚本。
 
 图片配置 `image_configurations` 只保存非密钥元数据；图片 API Key 仅由单 API 进程的内存保管，登录用户按账号隔离，未登录的本地开发页按浏览器 HttpOnly 会话隔离。不要使用多 API worker：各进程的内存密钥不共享。服务重启后需重新填写图片密钥，能力验证可选；未执行任务在密钥缺失时等待，配置修订改变后旧排队项被取消，不自动重复下单。
 
@@ -287,8 +302,8 @@ API 内的单线程任务执行器消费标准图片任务；独立旧 Worker �
 
 原始 CLI 在 `backend/vendor/imagegen/image_gen.py`，许可证保留，源脚本未修改。启动封装单独关闭 SDK 隐式重试并设置超时，防止外层无重试而 SDK 内部重复收费；公网 HTTPS 请求保留证书校验、固定解析地址、不跟随重定向。失败直接终止本次执行，不自动降级模型、切服务商或将编辑改成无参考重画。超时／中断标记 unknown，先核对已有文件及服务商记录；当前未实现服务商异步任务查询。
 
-每张任务目录保存 prompt.txt（UTF-8）、reference.png（如有）、result.png（服务商原生 PNG 字节）、preview.jpg（JPEG 预览）、execution.json（参数、原生尺寸、参考角色及哈希）。实际执行结果与后续人工检查保存在 image_jobs.execution_result；最新人工检查以数据库和 ZIP manifest 为准，execution.json 保留执行完成时的初始检查状态。UI 的画幅要求只加入实际提交的提示词，不作为原生像素承诺；旧模板的尺寸值按目标比例使用。图片详情可记录待检查／检查通过／需要修改及备注；检查不改变生成状态、不触发模型。ZIP 的 manifest 包含执行规则与最新检查记录。原图不会被质检或继续修改覆盖。
+每张任务目录保存 prompt.txt（UTF-8）、reference.png（如有）、result.png／result.jpg／result.webp（服务商原生字节）、preview.jpg（JPEG 预览）、execution.json（实际模型、参数、尺寸、格式与参考角色）。预览转换不改变原图，下载与 ZIP 文件扩展名跟随实际格式。UI 画幅用于构图，不固定原生 size；请求尺寸可在可选参数中指定。执行结果、自动及人工检查分别保存，继续修改不覆盖原图。
 
-配置页统一为“模型配置”，包含服务商连接、图片、文字与视觉模型设置，以及可选的连接检查、图片生成、参考图编辑；保存反馈和各项检查结果分别呈现。图片验证区只展示结果图片、状态、真实服务商错误、时间与任务链接，制作、导出及质检操作仍在生成记录。输入校验错误返回明确的 422 提示，不回显密钥。切换配置类型保留未保存的草稿；提交结果未知时保留原提交标识供核对和重发。
+配置页为“模型连接”，包括连接信息、普通模型列表、当前模型的可选参数，以及独立的文字、看图、生图和编辑检查；不再按角色配置模型。输入校验返回 422 且不回显密钥；图片提交结果未知时保留原标识供核对和重发。
 
 迁移 0013_shared_model_connection 增加文字模型 ID 和可选的已有连接引用，原配置与密钥不迁移、不覆盖。共用连接时地址和 API Key 仅填写一次，后端 resolve_text 复用运行时密钥；选择已有不同连接时沿用其原地址和密钥。只调整文字模型不会改变图片执行修订或清空图片检查结果。读取模型需主动点击，按所选连接访问 /models；不自动调用文字或图片模型。迁移 0015_skill_packages 增加 `vision_model_name`，供 Agent 的 `view_image` 使用；视觉模型留空时 Agent 只能以“待人工审核”结束。文字模型需支持 OpenAI 兼容的 tool calling，视觉模型需支持图片输入，否则 Agent 会明确失败或降级，不会静默跳过质检。

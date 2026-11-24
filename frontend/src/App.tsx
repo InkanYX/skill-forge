@@ -9,13 +9,12 @@ import ArtworkLibrary from './ArtworkLibrary';
 import ImageRevision from './ImageRevision';
 import ImageSetStudio from './ImageSetStudio';
 import SkillLibrary from './SkillLibrary';
-import AgentStudio from './AgentStudio';
 import Workspace from './Workspace';
+import { CreationSkillProvider } from './CreationSkillContext';
 
 const pages = [
   { id: 'workspace', href: '#/', title: '我的工作台' },
   { id: 'studio', href: '#/studio', title: '图片创作' },
-  { id: 'agent', href: '#/agent', title: 'Agent 制作' },
   { id: 'library', href: '#/library', title: '生成记录' },
   { id: 'products', href: '#/products', title: '产品资料' },
   { id: 'templates', href: '#/templates', title: '创作模板' },
@@ -27,6 +26,11 @@ function currentRoute() {
   const hash = window.location.hash;
   const [path, query] = hash.split('?');
   if (path === '#/cases') return '#/library?notes=1';
+  if (path === '#/agent') {
+    const params = new URLSearchParams(query || '');
+    params.set('mode', 'skill');
+    return `#/studio?${params}`;
+  }
   if (path === '#/sets') {
     const params = new URLSearchParams(query || '');
     if (!params.get('set')) { params.set('mode', 'set'); return `#/studio?${params}`; }
@@ -42,7 +46,6 @@ function currentPage() {
   if (hash === '#/edit') return 'edit';
   if (hash === '#/sets') return 'sets';
   if (hash === '#/skills') return 'skills';
-  if (hash === '#/agent') return 'agent';
   return hash === '#/studio' || hash === '#image-studio-heading' ? 'studio'
     : hash === '#/settings' || hash === '#model-settings-heading' ? 'settings' : 'workspace';
 }
@@ -78,17 +81,16 @@ function WorkspaceApp() {
         <header className="topbar"><span>工作空间 / {page === 'edit' ? '图片创作 / 继续修改' : page === 'sets' ? '图片创作 / 成套制作' : pages.find((item) => item.id === page)?.title}</span><div className="account-controls"><span>{user.display_name}<small>{user.role==='admin'?'管理员':'成员'}</small></span><button type="button" onClick={changePassword}>修改密码</button><button type="button" onClick={logout}>退出</button></div></header>
         <main id="workspace">
           {page === 'members' && <MemberManagement />}
-          {page === 'studio' && <ImageCreation route={route} />}
+          {page === 'studio' && <CreationSkillProvider><ImageCreation route={route} /></CreationSkillProvider>}
           {page === 'settings' && <ModelSettingsPage />}
           {page === 'templates' && <TemplateLibrary />}
           {page === 'products' && <ProductLibrary />}
           {page === 'library' && <ArtworkLibrary key={route} />}
-          {page === 'edit' && <ImageRevision key={route} />}
-          {page === 'sets' && <ImageSetStudio key={route} />}
+          {page === 'edit' && <CreationSkillProvider key={route}><ImageRevision /></CreationSkillProvider>}
+          {page === 'sets' && <CreationSkillProvider key={route}><ImageSetStudio /></CreationSkillProvider>}
           {page === 'skills' && <SkillLibrary />}
-          {page === 'agent' && <AgentStudio />}
           {page === 'workspace' && <Workspace />}
-          <footer className="page-footer">Skill Forge · 图片制作与经验复用<span>图片创作 / Agent 制作 / 账号隔离</span></footer>
+          <footer className="page-footer">Skill Forge · 图片制作与经验复用<span>制作规范 / 图片创作 / 团队经验</span></footer>
         </main>
       </div>
     </div>

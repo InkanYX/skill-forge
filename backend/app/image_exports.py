@@ -45,12 +45,13 @@ def build_archive(rows, directory: Path, include_records=True):
         records, total = [], 0
         with ZipFile(output, mode='w', compression=ZIP_DEFLATED, compresslevel=1) as archive:
             for index, (job, case) in enumerate(rows, start=1):
-                path = directory / 'image-jobs' / str(UUID(job.id)) / 'result.png'
+                from app.image_jobs import artifact
+                path = artifact(directory, job.id, 'result.png')
                 product = json.loads(job.product_snapshot or '{}')
                 template = json.loads(job.template_snapshot or '{}')
                 sku = safe_name(product.get('sku', ''), 'product')
                 purpose = safe_name(job.shot_name or template.get('name', ''), 'image')
-                filename = f'images/{index:03d}_{sku}_{purpose}_{job.id[:8]}.png'
+                filename = f'images/{index:03d}_{sku}_{purpose}_{job.id[:8]}{path.suffix}'
                 try:
                     with path.open('rb') as source:
                         header = source.read(8)

@@ -87,7 +87,7 @@ export default function ArtworkLibrary() {
   }
   return <section>
     <div className="section-heading"><div><p className="eyebrow">GENERATION HISTORY</p><h2>生成记录</h2></div><a className="button-primary" href="#/studio">开始图片创作</a></div>
-    <p className="settings-intro">一次提交保存为一条任务，包含本次所有图片的运行结果和日志。展开任务可查看图片、定位错误或继续修改。</p>
+    <p className="settings-intro">按创作任务保存图片结果和日志。技能辅助的多轮修改归入同一任务；展开可查看版本、定位错误或继续制作。</p>
     {openError && <p className="feedback feedback-error" role="alert">{openError}</p>}
     <form className="record-filter-panel" aria-labelledby="record-filter-title" onSubmit={submitSearch}>
       <div className="record-filter-heading"><h3 id="record-filter-title">筛选记录</h3><p>设置条件后点击“查询”，结果显示在下方。</p></div>

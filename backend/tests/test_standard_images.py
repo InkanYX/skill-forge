@@ -33,7 +33,7 @@ def standard(tmp_path):
 
 
 def save(client, key=KEY):
-    response = client.put('/api/image-configs',json={'base_url':'https://image.example.com/v1','api_key':key})
+    response = client.put('/api/image-configs',json={'base_url':'https://image.example.com/v1','api_key':key,'model_name':'gpt-image-2.5-sunburst'})
     assert response.status_code==200,response.text
     assert KEY not in response.text
     return response.json()
@@ -141,7 +141,7 @@ def test_cli_command_fixed_env_and_native_bytes_with_preview(tmp_path):
         return SimpleNamespace(returncode=0)
     previous=os.environ.get('OPENAI_API_KEY')
     with patch('app.standard_image_executor.subprocess.run',subprocess_run):
-        result=execute_cli(tmp_path,{'base_url':'https://image.example.com/v1'},KEY,'中文完整提示词',original)
+        result=execute_cli(tmp_path,{'base_url':'https://image.example.com/v1','backend':'imagegen-cli','model':'gpt-image-2.5-sunburst','quality':'high','size':'auto','output_format':'png'},KEY,'中文完整提示词',original)
     assert os.environ.get('OPENAI_API_KEY')==previous
     assert result['native_pixels']==[12,8] and result['references'][0]['role']=='edit_target'
     assert (tmp_path/'result.png').read_bytes()==original
@@ -265,7 +265,7 @@ def test_unverified_config_can_create_set_and_source_revision(standard):
         return client.post(path,files={key:(None,str(value)) for key,value in {'config_id':config['id'],'request_id':str(uuid4()),**values}.items()})
     parent=submit('/api/image-jobs/batch',{'prompt':'garden'})
     assert parent.status_code==202
-    assert process_standard_one(store,fake_executor)
+    assert process_standard_one(store,fake_executor,preparer=lambda store, owner, profile, directory, prompt, reference: prompt)
     revision=submit('/api/image-jobs/batch',{'prompt':'change background','source_job_id':parent.json()[0]['id']})
     assert revision.status_code==202 and revision.json()[0]['mode']=='edit'
     plan={'name':'optional check','shots':[{'name':'main','prompt':'full product'},{'name':'detail','prompt':'connection'}]}

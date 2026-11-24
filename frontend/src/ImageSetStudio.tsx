@@ -6,6 +6,7 @@ import { creativeRequest, type CreativeTemplate } from './creativeApi';
 import { listModelOptions as listConfigs, type ModelOption as ModelConfig } from './modelConfigApi';
 import { productValues, type Product, type ProductAsset } from './productApi';
 import TemplateVariableField from './TemplateVariableField';
+import { CreationSkillPicker, useCreationSkill } from './CreationSkillContext';
 
 interface Shot { id: string; name: string; prompt: string; size: string }
 function defaultShots(): Shot[] {
@@ -19,7 +20,8 @@ function defaultShots(): Shot[] {
   ].map(([name, prompt]) => ({ id: crypto.randomUUID(), name, prompt, size: 'default' }));
 }
 
-export default function ImageSetStudio() {
+export default function ImageSetStudio({ showSkillPicker = true }: {showSkillPicker?: boolean}) {
+  const creationSkill = useCreationSkill();
   const setId = new URLSearchParams(window.location.hash.split('?')[1] || '').get('set') || '';
   const [configs, setConfigs] = useState<ModelConfig[]>([]); const [products, setProducts] = useState<Product[]>([]); const [templates, setTemplates] = useState<CreativeTemplate[]>([]);
   const [configId, setConfigId] = useState(''); const [productId, setProductId] = useState(''); const [assetId, setAssetId] = useState(''); const [assets, setAssets] = useState<ProductAsset[]>([]);
@@ -30,7 +32,7 @@ export default function ImageSetStudio() {
   const [review, setReview] = useState(false); const [requestId, setRequestId] = useState(''); const [ambiguous, setAmbiguous] = useState(false);
   const dialog = useRef<HTMLDialogElement>(null); const referenceInput = useRef<HTMLInputElement>(null);
   const product = products.find(item => item.id === productId); const template = templates.find(item => item.id === templateId); const model = configs.find(item => item.id === configId);
-  const canGenerate = !!model?.has_api_key;
+  const canGenerate = !!model?.has_api_key && creationSkill.ready;
   useEffect(() => {
     if (setId) return;
     let active = true;
@@ -66,6 +68,7 @@ export default function ImageSetStudio() {
     if (template) body.set('template', JSON.stringify({ id: template.id, revision: template.revision, variables: values }));
     if (reference) body.set('reference', reference);
     try {
+      creationSkill.append(body);
       const response = await apiFetch('/api/image-jobs/sets', { method: 'POST', body, signal: AbortSignal.timeout(30000) }); const value = await response.json();
       if (!response.ok) throw new Error(typeof value.detail === 'string' ? value.detail : '清单提交失败。');
       setDirty(false); setAmbiguous(false); setReview(false); window.location.hash = `#/sets?set=${id}`;
@@ -74,6 +77,7 @@ export default function ImageSetStudio() {
   }
   if (setId) return <section><div className="section-heading"><h2>成套制作结果</h2><a className="button-primary" href="#/sets">新建一套图片</a></div><TaskResultsPanel taskId={setId} /></section>;
   return <section aria-label="成套制作内容">
+    {showSkillPicker && <CreationSkillPicker />}
     <form onSubmit={reviewPlan} onChange={() => setDirty(true)}><fieldset disabled={loading || busy || ambiguous} className="set-fieldset"><div className="set-context"><div className="form-field"><label htmlFor="set-name">套图名称</label><input id="set-name" required maxLength={100} value={name} onChange={e => setName(e.target.value)} placeholder="例如：灰色凉棚 · Listing 图片" /></div><div className="form-field"><label htmlFor="set-model">生图模型</label><select id="set-model" required value={configId} onChange={e => setConfigId(e.target.value)}><option value="">请选择已配置模型</option>{configs.map(item => <option key={item.id} value={item.id} disabled={!item.model_name.trim()}>{item.name} · {item.model_name || '未设置模型'}</option>)}</select><small>没有可用模型？<a href="#/settings">前往配置</a></small></div>
     <div className="form-field"><label htmlFor="set-product">产品资料</label><select id="set-product" value={productId} onChange={e => { const item = products.find(p => p.id === e.target.value); setProductId(e.target.value); setAssetId(''); setValues(previous => ({ ...previous, ...productValues(item) })); }}><option value="">临时制作，不关联产品</option>{products.map(item => <option key={item.id} value={item.id}>{item.sku} · {item.name}</option>)}</select></div>
     {product && <div className="form-field"><label htmlFor="set-asset">产品参考素材</label><select id="set-asset" value={assetId} onChange={e => { setAssetId(e.target.value); if (e.target.value) { setReference(undefined); if (referenceInput.current) referenceInput.current.value = ''; } }}><option value="">不使用素材库图片</option>{assets.map(item => <option key={item.id} value={item.id}>{item.kind} · {item.name}</option>)}</select></div>}

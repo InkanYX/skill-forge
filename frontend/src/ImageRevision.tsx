@@ -5,12 +5,15 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { creativeRequest } from './creativeApi';
 import { listModelOptions as listConfigs, type ModelOption as ModelConfig } from './modelConfigApi';
 import RevisionTrail from './RevisionTrail';
+import { CreationSkillPicker, useCreationSkill } from './CreationSkillContext';
 
 interface RevisionJob {
+  execution_profile?: {skill_workflow?: {primary: {name: string; version: string}}};
   id: string; task_id: string; config_id: string; model_name: string; size: string; status: string; message: string; prompt: string;
   image_url: string | null; preview_url?: string | null; parent_job_id: string | null; product_snapshot: { sku?: string; name?: string };
 }
 export default function ImageRevision() {
+  const creationSkill = useCreationSkill();
   const sourceId = new URLSearchParams(window.location.hash.split('?')[1] || '').get('source') || '';
   const [source, setSource] = useState<RevisionJob>(); const [configs, setConfigs] = useState<ModelConfig[]>([]);
   const [configId, setConfigId] = useState(''); const [prompt, setPrompt] = useState(''); const [count, setCount] = useState(1); const [size, setSize] = useState('default');
@@ -35,6 +38,7 @@ export default function ImageRevision() {
     const body = new FormData();
     for (const [key, value] of Object.entries({ config_id: model.config_id, model_name: model.model_name, request_id: id, source_job_id: source.id, prompt, count: String(count), size })) body.set(key, value);
     try {
+      creationSkill.append(body);
       const response = await apiFetch('/api/image-jobs/batch', { method: 'POST', body, signal: AbortSignal.timeout(30000) }); const value = await response.json();
       if (!response.ok) throw new Error(typeof value.detail === 'string' ? value.detail : '修改任务提交失败。');
       const items = value as RevisionJob[]; setCurrentTaskId(items[0]?.task_id || id); setAmbiguous(false); setRequestId('');
@@ -43,6 +47,7 @@ export default function ImageRevision() {
   }
   function unlock() { if (window.confirm('请先核对生成记录。修改输入后再次提交会创建新任务，是否继续？')) { setAmbiguous(false); setRequestId(''); setError(''); } }
   return <section><div className="section-heading"><div><p className="eyebrow">REFINE YOUR IMAGE</p><h2>继续修改</h2></div><a className="button-secondary" href="#/library">返回生成记录</a></div><p className="settings-intro">以选中的作品为参考，只填写这次想调整的内容。每次保存为新版本，原图始终保留。</p>
+    <CreationSkillPicker inherited={source?.execution_profile?.skill_workflow?.primary} />
     {loading && <p role="status">正在读取来源作品…</p>}{sourceError && <p className="feedback feedback-error" role="alert">{sourceError} {sourceId && <button className="button-secondary" onClick={() => setAttempt(value => value + 1)}>重新读取</button>}</p>}
     {!loading && !sourceError && source && <><div className="revision-layout"><section className="revision-source"><h3>来源作品</h3><a href={source.image_url!} target="_blank" rel="noreferrer"><img src={source.preview_url || source.image_url!} alt="本次修改的来源作品" /></a><p>{source.product_snapshot.sku ? `${source.product_snapshot.sku} · ${source.product_snapshot.name}` : '未关联产品资料'}</p><small>原模型：{source.model_name}。沿用来源作品保存的产品资料和模板记录。</small><details><summary>查看来源制作要求</summary><p className="case-prompt">{source.prompt}</p></details></section>
     <form className="revision-form" onSubmit={submit}><fieldset disabled={busy || ambiguous}><div className="form-field"><label htmlFor="revision-model">生图模型</label><select id="revision-model" required value={configId} onChange={e => setConfigId(e.target.value)}><option value="">请选择已配置模型</option>{configs.map(item => <option key={item.id} value={item.id} disabled={!item.model_name.trim()}>{item.name} · {item.model_name || '未指定模型'}</option>)}</select><small>使用当前保存的配置调用图片编辑接口。<a href="#/settings">管理模型配置</a></small></div>

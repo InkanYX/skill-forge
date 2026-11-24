@@ -53,9 +53,9 @@ async function request<T>(path: string, method = 'GET', body?: unknown): Promise
 export const listConfigs = () => request<ModelConfig[]>('');
 export const listModelOptions = async (): Promise<ModelOption[]> => {
   const config = await imageConfigRequest<ImageConfiguration | null>();
-  return config ? [{...config, config_id:config.id, id:JSON.stringify([config.id,config.model_name]),
-    generation_verified:config.generation.status==='succeeded' && config.has_api_key,
-    edit_verified:config.edit.status==='succeeded' && config.has_api_key}] : [];
+  return config ? config.model_names.map(model=>({...config, model_name:model, config_id:config.id, id:JSON.stringify([config.id,model]),
+    generation_verified:(config.model_settings?.[model]?.capabilities?.generate?.state==='supported' || model===config.model_name&&config.generation.status==='succeeded') && config.has_api_key,
+    edit_verified:(config.model_settings?.[model]?.capabilities?.edit?.state==='supported' || model===config.model_name&&config.edit.status==='succeeded') && config.has_api_key})) : [];
 };
 export const saveConfig = (draft: ConfigDraft, id?: string) => request<ModelConfig>(id ? `/${encodeURIComponent(id)}` : '', id ? 'PUT' : 'POST', draft);
 export const testConfig = (draft: ConfigDraft, id?: string) => request<ConnectionResult>('/test', 'POST', { ...draft, config_id: id || null });

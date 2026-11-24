@@ -16,7 +16,7 @@ from sqlalchemy import select, update, func, or_, cast, JSON
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.database import ImageJob, ModelConfiguration, DatabaseConfigStore, CreativeCase
+from app.database import ImageJob, ModelConfiguration, DatabaseConfigStore, CreativeCase, AgentRun
 from app.image_provider import MAX_IMAGE, GenerationError, generate_image, normalize_image
 from app.creative_templates import render_template
 from app.products import resolve_product
@@ -103,7 +103,12 @@ def view(row: ImageJob) -> JobView:
 
 
 def artifact(directory: Path, identifier: str, name: str) -> Path:
-    return directory / "image-jobs" / str(UUID(identifier)) / name
+    target = directory / 'image-jobs' / str(UUID(identifier)) / name
+    if name == 'result.png' and not target.is_file():
+        for extension in ('jpg', 'webp'):
+            native = target.with_suffix('.' + extension)
+            if native.is_file(): return native
+    return target
 
 
 def create_job(engine, directory, config_id, model_name, prompt, size, request_id, reference):
@@ -140,6 +145,8 @@ def create_jobs(engine, directory, config_id, model_name, prompt, size, request_
         if reference is not None or product_request or template_request:
             raise HTTPException(422, '继续修改时请使用来源作品，不要同时提供其他参考图、产品或模板。')
         inputs.append({'source_job_id': source_job_id})
+    if standard_config and standard_config.get('skill_choice'):
+        inputs.append({'skill': standard_config['skill_choice']})
     fingerprint = hashlib.sha256(json.dumps(inputs, ensure_ascii=False).encode()).hexdigest()
     request_ids = [request_id] + [str(uuid5(UUID(request_id), f"image-{index}")) for index in range(1, count)]
     with Session(engine) as session:
@@ -157,11 +164,14 @@ def create_jobs(engine, directory, config_id, model_name, prompt, size, request_
         snapshot = {}
         product_snapshot = {}
         edit_instruction = ''
+        inherited_skill = None
+        source = None
         set_meta = {'set_id': request_id if image_set else None, 'set_name': image_set['name'] if image_set else '', 'shot_name': '', 'shot_index': None}
         if source_job_id:
             source = session.get(ImageJob, source_job_id)
             if source is None or source.status != 'succeeded':
                 raise HTTPException(422, '只能基于已完成的作品继续修改。')
+            inherited_skill = json.loads(source.execution_profile or '{}').get('skill_workflow', {}).get('primary')
             path = artifact(directory, source.id, 'result.png')
             try:
                 if path.stat().st_size > MAX_IMAGE:
@@ -195,17 +205,33 @@ def create_jobs(engine, directory, config_id, model_name, prompt, size, request_
             if any(len(plan['prompt']) > 32000 for plan in plans):
                 raise HTTPException(422, '部分图片合并后的要求过长，请精简公共要求或模板。')
         if standard_config:
-            from app.image_configurations import MODEL
-            if model_name and model_name != MODEL: raise HTTPException(422, '图片模型固定为 ' + MODEL)
-            model_name = MODEL
+            selected_model = standard_config.get('model', '')
+            if model_name and model_name in standard_config.get('models', []):
+                fallback_parameters = standard_config.get('parameters', {}) if model_name == standard_config.get('model') else {}
+                selected_model = model_name
+                standard_config = dict(standard_config)
+                options = standard_config.get('model_settings', {}).get(model_name, {})
+                standard_config['model'] = model_name
+                standard_config['parameters'] = options.get('request_parameters', fallback_parameters)
+                standard_config['capabilities'] = options.get('capabilities', {})
+            if not selected_model: raise HTTPException(422, '请在模型配置中填写生图模型；文字模型仍可正常使用。')
+            if model_name and model_name != selected_model: raise HTTPException(409, '模型配置已更新，请刷新后重新选择。')
+            model_name = selected_model
+            operation = 'edit' if reference else 'generate'
+            if not standard_config.get('verification') and standard_config.get('capabilities', {}).get(operation, {}).get('state') == 'unsupported':
+                raise HTTPException(422, '当前模型已确认不支持本次图片操作；文字调用不受影响，可更换图片模型或重新验证。')
             from types import SimpleNamespace
             config = SimpleNamespace(**{key: standard_config[key] for key in ('name','base_url')}, encrypted_key='')
+            if standard_config.get('use_skill'):
+                from app.creation_skills import select_skill
+                primary_skill = select_skill(engine, directory, standard_config['workflow_owner'],
+                                             standard_config.get('skill_choice'), inherited_skill)
             for plan in plans:
                 if plan['size'] != 'default':
                     width, height = plan['size'].split('x')
                     from math import gcd
                     divisor = gcd(int(width), int(height))
-                    plan['prompt'] += f'\n\nOutput composition aspect ratio: {int(width)//divisor}:{int(height)//divisor}. Native size is auto; preserve product proportions.'
+                    plan['prompt'] += f'\n\nOutput composition aspect ratio: {int(width)//divisor}:{int(height)//divisor}. Preserve product proportions; actual pixels depend on the provider.'
         else:
             config = session.get(ModelConfiguration, config_id)
             if config is None:
@@ -223,12 +249,69 @@ def create_jobs(engine, directory, config_id, model_name, prompt, size, request_
                 raise
             except Exception:
                 raise HTTPException(503, "无法解密密钥，请恢复加密文件或重新保存配置。") from None
+        creation = None
+        creation_context = None
+        if standard_config and standard_config.get('use_skill'):
+            from app.creation_conversations import conversation_id, conversation_key, MAX_CONVERSATION_CHARS, MAX_TURNS
+            job_owner = owner_id or standard_config['workflow_owner']
+            parent = session.get(AgentRun, source.agent_run_id) if source and source.agent_run_id else None
+            if parent and parent.owner_id == job_owner:
+                root_id = conversation_id(parent)
+                session.get(AgentRun, root_id, with_for_update=True)
+                parent = session.scalar(select(AgentRun).where(conversation_key() == root_id)
+                                         .order_by(AgentRun.turn_index.desc()).limit(1))
+                if parent.status in ('queued', 'running', 'waiting_images', 'unknown'):
+                    raise HTTPException(409, '原创作仍在执行或结果待确认，请先核对已有任务。')
+                history = list(session.scalars(select(AgentRun).where(conversation_key() == root_id)))
+                if len(history) >= MAX_TURNS or len(parent.goal) + sum(len(item.instruction) for item in history) + len(edit_instruction) > MAX_CONVERSATION_CHARS:
+                    raise HTTPException(422, '创作上下文已达到上限，请整理要求后新建任务。')
+            else:
+                parent, root_id = None, request_id
+            creation = AgentRun(id=request_id, conversation_id=root_id, parent_run_id=parent.id if parent else None,
+                turn_index=parent.turn_index + 1 if parent else 1, instruction=edit_instruction if parent else '',
+                source_job_id=source.id if source else None, owner_id=job_owner,
+                skill_id=primary_skill['skill_id'], skill_version_id=primary_skill['version_id'], config_id=config_id,
+                status='waiting_images', goal=parent.goal if parent else (image_set['name'] + '\n' + prompt if image_set else prompt),
+                model_name='', vision_model_name='', steps_count=0, image_calls=0,
+                max_steps=20, max_images=count, summary='', error='', created_at=now(), updated_at=now())
+            session.add(creation)
+            from app.creation_conversations import history_context
+            with session.no_autoflush:
+                creation_context = {'original_goal': creation.goal, 'history': history_context(session, creation)}
+            if reference is not None:
+                from app.agent_runtime import run_dir
+                original_id = json.loads(source.execution_profile or '{}').get('identity_reference_job_id') if source else None
+                original_path = artifact(directory, original_id, 'reference.png') if original_id else None
+                original = original_path.read_bytes() if original_path and original_path.is_file() else reference
+                stored_reference = run_dir(directory, creation.id) / 'reference.png'
+                stored_reference.parent.mkdir(parents=True, exist_ok=True)
+                stored_reference.write_bytes(original)
         rows = []
         for index, (item_request_id, plan) in enumerate(zip(request_ids, plans)):
             identifier = str(uuid4())
-            row = ImageJob(id=identifier, request_id=item_request_id, fingerprint=fingerprint, config_id=config_id, config_name=config.name, base_url=config.base_url, encrypted_key=config.encrypted_key, model_name=model_name, prompt=plan['prompt'], size=plan['size'], mode="edit" if reference else "generate", status="queued", message="等待后台 Worker 执行", created_at=now(), updated_at=now(), owner_id=owner_id)
+            job_owner = owner_id or (standard_config.get('workflow_owner') if standard_config else None)
+            row = ImageJob(id=identifier, request_id=item_request_id, fingerprint=fingerprint, config_id=config_id, config_name=config.name, base_url=config.base_url, encrypted_key=config.encrypted_key, model_name=model_name, prompt=plan['prompt'], size=plan['size'], mode="edit" if reference else "generate", status="queued", message="等待后台 Worker 执行", created_at=now(), updated_at=now(), owner_id=job_owner)
             row.task_id, row.task_index = request_id, index
-            if standard_config: row.execution_profile = json.dumps(standard_config, ensure_ascii=False)
+            if creation:
+                row.agent_run_id = creation.id
+                row.task_id, row.task_index = creation.conversation_id, (creation.turn_index - 1) * 8 + index
+            if standard_config:
+                profile = {key: value for key, value in standard_config.items() if key not in ('skill_choice', 'use_skill', 'workflow_owner', 'model_settings', 'models')}
+                if standard_config.get('use_skill'):
+                    from app.creation_skills import snapshot_for, purpose_for
+                    purpose_hint = plan['shot_name']
+                    if source:
+                        previous_workflow = json.loads(source.execution_profile or '{}').get('skill_workflow', {})
+                        purpose_hint = edit_instruction if purpose_for(edit_instruction) != 'general' else previous_workflow.get('purpose', purpose_hint)
+                    profile['skill_workflow'] = snapshot_for(engine, directory, standard_config['workflow_owner'], plan['prompt'], inherited=primary_skill, purpose_hint=purpose_hint)
+                    if source and not standard_config.get('skill_choice'):
+                        from app.creation_skills import inherit_companions
+                        profile['skill_workflow'] = inherit_companions(profile['skill_workflow'], json.loads(source.execution_profile or '{}').get('skill_workflow', {}))
+                    profile['identity_reference_job_id'] = (json.loads(source.execution_profile or '{}').get('identity_reference_job_id')
+                        or (source.id if source.mode == 'edit' else None)) if source else identifier if reference else None
+                    profile['creation_brief'] = plan['prompt']
+                    profile['conversation_context'] = creation_context
+                row.execution_profile = json.dumps(profile, ensure_ascii=False)
             if reference:
                 path = artifact(directory, identifier, "reference.png")
                 path.parent.mkdir(parents=True, exist_ok=True)
@@ -327,9 +410,18 @@ def build_image_router(engine, directory: Path, image_configs=None):
     from app.image_tasks import build_task_router
     router.include_router(build_task_router(engine, view))
 
-    def standard_profile(request, identifier):
+    def standard_profile(request, identifier, skill=''):
         if image_configs is None: return None
-        return image_configs.snapshot(request.state.image_owner, str(identifier))
+        try:
+            choice = json.loads(skill) if skill else None
+            if choice is not None:
+                if not isinstance(choice, dict) or set(choice) - {'skill_id', 'version_id'} or not choice.get('skill_id'):
+                    raise ValueError()
+                choice = {key: str(UUID(value)) for key, value in choice.items()}
+        except (ValueError, TypeError, AttributeError):
+            raise HTTPException(422, '制作技能参数无效。') from None
+        return {**image_configs.snapshot(request.state.image_owner, str(identifier)), 'use_skill': True,
+                'workflow_owner': request.state.image_owner, 'skill_choice': choice}
 
     def require_database():
         if engine is None:
@@ -342,7 +434,7 @@ def build_image_router(engine, directory: Path, image_configs=None):
             return [view(row) for row in session.scalars(select(ImageJob).order_by(ImageJob.created_at.desc()).limit(30))]
 
     @router.post('/sets', response_model=list[JobView], status_code=202)
-    def submit_set(request: Request, config_id: Annotated[UUID, Form()], request_id: Annotated[UUID, Form()], plan: Annotated[str, Form(max_length=80000)], prompt: Annotated[str, Form(max_length=8000)] = '', template: Annotated[str, Form(max_length=240000)] = '', product: Annotated[str, Form(max_length=2000)] = '', reference: Annotated[UploadFile | None, File()] = None, model_name: Annotated[str, Form(max_length=200)] = ''):
+    def submit_set(request: Request, config_id: Annotated[UUID, Form()], request_id: Annotated[UUID, Form()], plan: Annotated[str, Form(max_length=80000)], prompt: Annotated[str, Form(max_length=8000)] = '', template: Annotated[str, Form(max_length=240000)] = '', product: Annotated[str, Form(max_length=2000)] = '', reference: Annotated[UploadFile | None, File()] = None, model_name: Annotated[str, Form(max_length=200)] = '', skill: Annotated[str, Form(max_length=2000)] = ''):
         require_database()
         try:
             image_set = ImageSetInput.model_validate_json(plan).model_dump()
@@ -353,7 +445,7 @@ def build_image_router(engine, directory: Path, image_configs=None):
         except (ValueError, ValidationError):
             raise HTTPException(422, '请检查套图清单：每套 1–8 张，名称、用途和要求必填，单张要求最多 4000 字符；尺寸为 default 或正整数宽x高，总像素不超过 2000 万。') from None
         content = reference.file.read(MAX_IMAGE + 1) if reference else None
-        return create_jobs(engine, directory, str(config_id), model_name, prompt, 'default', str(request_id), content, len(image_set['shots']), template_request, product_request, image_set=image_set, standard_config=standard_profile(request, config_id))
+        return create_jobs(engine, directory, str(config_id), model_name, prompt, 'default', str(request_id), content, len(image_set['shots']), template_request, product_request, image_set=image_set, standard_config=standard_profile(request, config_id, skill))
 
     @router.get('/sets/{set_id}')
     def get_set(set_id: UUID):
@@ -419,13 +511,13 @@ def build_image_router(engine, directory: Path, image_configs=None):
             return view(row).model_copy(update={'case_id': session.scalar(select(CreativeCase.id).where(CreativeCase.job_id == row.id))})
 
     @router.post("", response_model=JobView, status_code=202)
-    def submit(request: Request, config_id: Annotated[UUID, Form()], request_id: Annotated[UUID, Form()], prompt: Annotated[str, Form(min_length=1, max_length=8000)], model_name: Annotated[str, Form(max_length=200)] = "", size: Annotated[ImageSize, Form()] = "default", reference: Annotated[UploadFile | None, File()] = None):
+    def submit(request: Request, config_id: Annotated[UUID, Form()], request_id: Annotated[UUID, Form()], prompt: Annotated[str, Form(min_length=1, max_length=8000)], model_name: Annotated[str, Form(max_length=200)] = "", size: Annotated[ImageSize, Form()] = "default", reference: Annotated[UploadFile | None, File()] = None, skill: Annotated[str, Form(max_length=2000)] = ''):
         require_database()
         content = reference.file.read(MAX_IMAGE + 1) if reference else None
-        return create_jobs(engine, directory, str(config_id), model_name, prompt, size, str(request_id), content, 1, standard_config=standard_profile(request, config_id))[0]
+        return create_jobs(engine, directory, str(config_id), model_name, prompt, size, str(request_id), content, 1, standard_config=standard_profile(request, config_id, skill))[0]
 
     @router.post("/batch", response_model=list[JobView], status_code=202)
-    def submit_batch(request: Request, config_id: Annotated[UUID, Form()], request_id: Annotated[UUID, Form()], prompt: Annotated[str, Form(max_length=8000)] = "", count: Annotated[int, Form(ge=1, le=8)] = 1, size: Annotated[ImageSize, Form()] = "default", reference: Annotated[UploadFile | None, File()] = None, template: Annotated[str, Form(max_length=240000)] = "", product: Annotated[str, Form(max_length=2000)] = "", source_job_id: Annotated[UUID | None, Form()] = None, model_name: Annotated[str, Form(max_length=200)] = ""):
+    def submit_batch(request: Request, config_id: Annotated[UUID, Form()], request_id: Annotated[UUID, Form()], prompt: Annotated[str, Form(max_length=8000)] = "", count: Annotated[int, Form(ge=1, le=8)] = 1, size: Annotated[ImageSize, Form()] = "default", reference: Annotated[UploadFile | None, File()] = None, template: Annotated[str, Form(max_length=240000)] = "", product: Annotated[str, Form(max_length=2000)] = "", source_job_id: Annotated[UUID | None, Form()] = None, model_name: Annotated[str, Form(max_length=200)] = "", skill: Annotated[str, Form(max_length=2000)] = ""):
         require_database()
         content = reference.file.read(MAX_IMAGE + 1) if reference else None
         # The requested model must belong to the saved provider configuration.
@@ -438,7 +530,7 @@ def build_image_router(engine, directory: Path, image_configs=None):
                 raise ValueError()
         except ValueError:
             raise HTTPException(422, "模板参数格式无效。") from None
-        return create_jobs(engine, directory, str(config_id), model_name, prompt, size, str(request_id), content, count, template_request, product_request, str(source_job_id) if source_job_id else None, standard_config=standard_profile(request, config_id))
+        return create_jobs(engine, directory, str(config_id), model_name, prompt, size, str(request_id), content, count, template_request, product_request, str(source_job_id) if source_job_id else None, standard_config=standard_profile(request, config_id, skill))
 
     @router.get("/{job_id}", response_model=JobView)
     def get_job(job_id: UUID):
@@ -499,6 +591,7 @@ def build_image_router(engine, directory: Path, image_configs=None):
         path = artifact(directory, str(job_id), "preview.jpg" if kind == "preview" else "result.png" if kind == "image" else "reference.png")
         if not path.is_file():
             raise HTTPException(404, "图片文件不存在，请检查数据目录或备份。")
-        return FileResponse(path, media_type="image/jpeg" if kind == "preview" else "image/png", filename=f"skill-forge-{job_id}.png" if download else None, headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
+        import mimetypes
+        return FileResponse(path, media_type=mimetypes.guess_type(path.name)[0] or 'application/octet-stream', filename=f'skill-forge-{job_id}{path.suffix}' if download else None, headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
 
     return router
