@@ -21,7 +21,8 @@ function LegacyProductBridge({id}:{id:string}){
 export function PlanningPage({route}:{route:string}){
   const params=new URLSearchParams(route.split('?')[1]);const id=params.get('project');const templates=params.get('view')==='templates'||params.get('view')==='presets';
   const editing=!templates&&(!!id||params.get('new')==='1'||params.has('product')||params.has('template'));
-  return <section><div className="section-heading"><div><p className="eyebrow">IMAGE PLANNING</p><h2>图片策划</h2></div>{!editing&&!templates&&<a className="button-primary" href="#/planning?new=1">新建策划方案</a>}</div>
+  const templateCreating=templates&&(params.get('new')==='1'||params.has('from'));
+  return <section><div className="section-heading"><div><p className="eyebrow">IMAGE PLANNING</p><h2>图片策划</h2></div>{!editing&&!templateCreating&&<a className="button-primary" href={templates?'#/planning?view=templates&new=1':'#/planning?new=1'}>{templates?'新建模板':'新建策划方案'}</a>}</div>
     {!editing&&<nav className="workflow-subnav" aria-label="策划内容"><a href="#/planning" aria-current={!templates?'page':undefined}>策划方案</a><a href="#/planning?view=templates" aria-current={templates?'page':undefined}>方案模板</a></nav>}
     {templates?<PlanTemplateLibrary key={route} route={route}/>:editing?<ImagePlanEditor key={id||route} id={id||undefined} route={route}/>:<CreationProjectRecords kind="plan"/>}
   </section>;

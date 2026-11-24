@@ -882,8 +882,10 @@ summary { cursor: pointer; color: #3e577c; }
 .workflow-record-status.status-ready { background:#eaf6f0; color:#26735a; }
 .workflow-record-status.status-busy { background:#edf4ff; color:#3866a5; }
 .workflow-options { margin:18px 0; padding:16px 20px; border:1px solid #e0e7ef; border-radius:10px; background:#f7f9fc; }
-.workflow-options > summary { color:#4b6380; cursor:pointer; }
-.workflow-options[open] > summary { margin-bottom:18px; }
+.workflow-options > summary { color:#3f5872; cursor:pointer; font-size:13.5px; font-weight:600; line-height:1.6; }
+.workflow-options[open] > summary { margin-bottom:14px; }
+.workflow-options > p { margin:0 0 14px; color:#61748c; font-size:12.5px; line-height:1.8; letter-spacing:.01em; }
+.workflow-options > p:last-child { margin-bottom:0; }
 .pending-material { display:grid; grid-template-columns:minmax(0,1fr) auto auto; align-items:center; gap:12px; padding:10px 0; }
 .pending-name { display:flex; align-items:center; flex-wrap:wrap; gap:8px; min-width:0; overflow-wrap:anywhere; }
 .pending-kind { color:#607089; font-size:12.5px; white-space:nowrap; }
