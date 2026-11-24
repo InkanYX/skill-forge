@@ -11,10 +11,12 @@ import ImageSetStudio from './ImageSetStudio';
 import SkillLibrary from './SkillLibrary';
 import AgentStudio from './AgentStudio';
 import Workspace from './Workspace';
+import ProductProjects from './ProductProjects';
 
 const pages = [
   { id: 'workspace', href: '#/', title: '我的工作台' },
   { id: 'studio', href: '#/studio', title: '图片创作' },
+  { id: 'projects', href: '#/projects', title: '商品图项目' },
   { id: 'agent', href: '#/agent', title: 'Agent 制作' },
   { id: 'library', href: '#/library', title: '生成记录' },
   { id: 'products', href: '#/products', title: '产品资料' },
@@ -36,6 +38,7 @@ function currentRoute() {
 function currentPage() {
   const hash = currentRoute().split('?')[0];
   if (hash === '#/members') return 'members';
+  if (hash === '#/projects') return 'projects';
   if (hash === '#/templates') return 'templates';
   if (hash === '#/products') return 'products';
   if (hash === '#/library') return 'library';
@@ -79,6 +82,7 @@ function WorkspaceApp() {
         <main id="workspace">
           {page === 'members' && <MemberManagement />}
           {page === 'studio' && <ImageCreation route={route} />}
+          {page === 'projects' && <ProductProjects route={route} />}
           {page === 'settings' && <ModelSettingsPage />}
           {page === 'templates' && <TemplateLibrary />}
           {page === 'products' && <ProductLibrary />}

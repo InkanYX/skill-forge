@@ -274,6 +274,20 @@ class CreativeCase(OwnedRecord, Base):
     updated_at: Mapped[str] = mapped_column(String(40))
 
 
+class ProductImageProject(OwnedRecord, Base):
+    """Durable, versioned human approvals; no credentials in project state."""
+    __tablename__ = 'product_image_projects'
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    title: Mapped[str] = mapped_column(String(120))
+    revision: Mapped[int] = mapped_column(default=1)
+    status: Mapped[str] = mapped_column(String(24), index=True)
+    action: Mapped[str] = mapped_column(String(24), default='')
+    state: Mapped[str] = mapped_column(Text)
+    lease_until: Mapped[float | None] = mapped_column(Float, nullable=True)
+    created_at: Mapped[str] = mapped_column(String(40))
+    updated_at: Mapped[str] = mapped_column(String(40))
+
+
 class DatabaseConfigStore(FileConfigStore):
     """Retains encryption format, response schema, and address-change protection."""
 
@@ -357,6 +371,7 @@ def storage_status(engine: Engine | None) -> dict:
             connection.execute(select(SkillPackage.id).limit(0))
             connection.execute(select(SkillVersion.id).limit(0))
             connection.execute(select(AgentRun.id).limit(0))
+            connection.execute(select(ProductImageProject.id).limit(0))
         return {"storage": "postgresql", "status": "ready", "message": "数据库连接、模型配置与生图任务表检查通过"}
     except Exception:
         return {"storage": "postgresql", "status": "unavailable", "message": "数据库未连接或表结构未就绪，请检查数据库并运行迁移。"}
