@@ -1,7 +1,7 @@
 """Read-only business overview. Counts are database records, not mock metrics."""
 import json
 from datetime import datetime, timedelta, timezone
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from sqlalchemy import select, func, case
 from sqlalchemy.orm import Session
 from app.database import ImageJob, Product, CreativeTemplate, CreativeSkill, CreativeCase, ModelConfiguration
@@ -20,11 +20,11 @@ def job_summary(row):
     }
 
 
-def build_workspace_router(engine):
+def build_workspace_router(engine, image_store=None):
     router = APIRouter(prefix='/api/workspace', tags=['workspace'])
 
     @router.get('')
-    def overview():
+    def overview(request: Request):
         if engine is None:
             raise HTTPException(503, '工作台需要配置数据库；请先完成本机数据库设置。')
         current = datetime.now(timezone.utc)
@@ -39,6 +39,10 @@ def build_workspace_router(engine):
                 return session.scalar(select(func.count()).select_from(model).where(*conditions))
             resources = {'products': count(Product), 'templates': count(CreativeTemplate), 'skills': count(CreativeSkill), 'cases': count(CreativeCase), 'model_configs': count(ModelConfiguration), 'available_models': count(ModelConfiguration, func.trim(ModelConfiguration.model_name) != '', ModelConfiguration.encrypted_key != '')}
             resources['available_models'] = sum(len(configured_models(row)) for row in session.scalars(select(ModelConfiguration).where(ModelConfiguration.encrypted_key != '')))
+            connection = image_store.get(request.state.image_owner) if image_store else None
+            if connection:
+                resources['model_configs'] += 1
+                if connection['has_api_key']: resources['available_models'] += len(connection['model_names'])
             today = {
                 'date': local.date().isoformat(), 'timezone': 'Asia/Shanghai',
                 'submitted': count(ImageJob, ImageJob.created_at >= start, ImageJob.created_at < end),

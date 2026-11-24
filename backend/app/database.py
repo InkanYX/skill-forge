@@ -133,6 +133,67 @@ class ImageConfiguration(Base):
     auto_review: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text('false'))
     generation_path: Mapped[str] = mapped_column(String(300), default='/images/generations', server_default='/images/generations')
     edit_path: Mapped[str] = mapped_column(String(300), default='/images/edits', server_default='/images/edits')
+    planning_model_name: Mapped[str] = mapped_column(String(200), default='', server_default='')
+    image_model_name: Mapped[str] = mapped_column(String(200), default='', server_default='')
+
+
+class CreationProject(OwnedRecord, Base):
+    __tablename__ = 'creation_projects'
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    title: Mapped[str] = mapped_column(String(120))
+    kind: Mapped[str] = mapped_column(String(16), default='legacy', server_default='legacy', index=True)
+    source_product_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    revision: Mapped[int] = mapped_column(default=1)
+    content: Mapped[str] = mapped_column(Text, default='{}')
+    created_at: Mapped[str] = mapped_column(String(40))
+    updated_at: Mapped[str] = mapped_column(String(40), index=True)
+
+
+class CreationMaterial(Base):
+    __tablename__ = 'creation_materials'
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    project_id: Mapped[str] = mapped_column(String(36), index=True)
+    name: Mapped[str] = mapped_column(String(200))
+    kind: Mapped[str] = mapped_column(String(32))
+    media_type: Mapped[str] = mapped_column(String(64))
+    digest: Mapped[str] = mapped_column(String(64))
+    size: Mapped[int] = mapped_column()
+    pages: Mapped[int] = mapped_column(default=1)
+    created_at: Mapped[str] = mapped_column(String(40))
+
+
+class ImagePlanTemplate(OwnedRecord, Base):
+    __tablename__ = 'image_plan_templates'
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    name: Mapped[str] = mapped_column(String(120))
+    content: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[str] = mapped_column(String(40))
+
+
+class CreationDocument(Base):
+    __tablename__ = 'creation_documents'
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    project_id: Mapped[str] = mapped_column(String(36), index=True)
+    stage: Mapped[str] = mapped_column(String(16))
+    version: Mapped[int] = mapped_column()
+    content: Mapped[str] = mapped_column(Text)
+    confirmed_at: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    created_at: Mapped[str] = mapped_column(String(40))
+    __table_args__ = (UniqueConstraint('project_id', 'stage', 'version', name='uq_creation_document_version'),)
+
+
+class CreationExecution(Base):
+    __tablename__ = 'creation_executions'
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    project_id: Mapped[str] = mapped_column(String(36), index=True)
+    stage: Mapped[str] = mapped_column(String(16))
+    status: Mapped[str] = mapped_column(String(16), index=True)
+    input: Mapped[str] = mapped_column(Text)
+    output: Mapped[str] = mapped_column(Text, default='{}')
+    error: Mapped[str] = mapped_column(Text, default='')
+    lease_until: Mapped[float | None] = mapped_column(Float, nullable=True)
+    created_at: Mapped[str] = mapped_column(String(40))
+    updated_at: Mapped[str] = mapped_column(String(40))
 
 
 class Product(OwnedRecord, Base):

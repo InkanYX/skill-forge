@@ -53,7 +53,7 @@ async function request<T>(path: string, method = 'GET', body?: unknown): Promise
 export const listConfigs = () => request<ModelConfig[]>('');
 export const listModelOptions = async (): Promise<ModelOption[]> => {
   const config = await imageConfigRequest<ImageConfiguration | null>();
-  return config ? config.model_names.map(model=>({...config, model_name:model, config_id:config.id, id:JSON.stringify([config.id,model]),
+  return config ? [...config.model_names].sort((a,b)=>Number(b===config.image_model_name)-Number(a===config.image_model_name)).map(model=>({...config, model_name:model, config_id:config.id, id:JSON.stringify([config.id,model]),
     generation_verified:(config.model_settings?.[model]?.capabilities?.generate?.state==='supported' || model===config.model_name&&config.generation.status==='succeeded') && config.has_api_key,
     edit_verified:(config.model_settings?.[model]?.capabilities?.edit?.state==='supported' || model===config.model_name&&config.edit.status==='succeeded') && config.has_api_key})) : [];
 };

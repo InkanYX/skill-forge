@@ -34,6 +34,8 @@ class ImageConfigInput(BaseModel):
     edit_path: str = '/images/edits'
     model_names: list[str] = Field(default_factory=list, max_length=100)
     auto_review: bool = False
+    planning_model_name: str = Field(default='', max_length=200)
+    image_model_name: str = Field(default='', max_length=200)
     model_options: dict[str, dict] = Field(default_factory=dict)
 
     @field_validator('model_options')
@@ -56,7 +58,7 @@ class ImageConfigInput(BaseModel):
             raise ValueError('模型 ID 最多 200 字符，不能包含控制字符。')
         return values
 
-    @field_validator('text_model_name', 'vision_model_name', 'model_name')
+    @field_validator('text_model_name', 'vision_model_name', 'model_name', 'planning_model_name', 'image_model_name')
     @classmethod
     def validate_text_model(cls, value):
         value = value.strip()
@@ -116,6 +118,7 @@ class ImageConfigStore:
         return {'id': row.id, 'revision': row.revision, 'name': row.name, 'base_url': row.base_url, 'model_name': row.model_name,
                 'model_names': json.loads(row.model_names or '[]') or list(dict.fromkeys(value for value in (row.model_name, row.text_model_name, row.vision_model_name) if value)),
                 'model_settings': json.loads(row.model_settings or '{}'), 'auto_review': row.auto_review,
+                'planning_model_name': row.planning_model_name, 'image_model_name': row.image_model_name,
                 'unified_models': bool(json.loads(row.model_names or '[]')),
                 'has_api_key': bool(self.key(row.id, row.revision)),
                 **{field: json.loads(getattr(row, field) or '{}') for field in ('request_parameters', 'text_parameters', 'vision_parameters', 'capabilities')},
@@ -188,6 +191,12 @@ class ImageConfigStore:
                 if data.model_name and data.model_name not in names: names.append(data.model_name)
                 row.model_names = json.dumps(names, ensure_ascii=False)
             if 'auto_review' in data.model_fields_set: row.auto_review = data.auto_review
+            names = json.loads(row.model_names or '[]')
+            for field in ('planning_model_name', 'image_model_name'):
+                value = getattr(data, field) if field in data.model_fields_set else getattr(row, field)
+                if value and value not in names:
+                    raise HTTPException(422, '创作默认模型必须来自已添加的模型列表。')
+                if field in data.model_fields_set: setattr(row, field, value)
             for field in ('model_name', 'generation_path', 'edit_path'):
                 if field in data.model_fields_set: setattr(row, field, getattr(data, field))
             for field in ('request_parameters', 'text_parameters', 'vision_parameters'):
@@ -198,7 +207,7 @@ class ImageConfigStore:
                 caps = entry.setdefault('capabilities', {})
                 for field, value in options.items():
                     if entry.get(field, {}) != value:
-                        for operation in ({'request_parameters': ('generate', 'edit'), 'text_parameters': ('text',), 'vision_parameters': ('vision',)})[field]: caps.pop(operation, None)
+                        for operation in ({'request_parameters': ('generate', 'edit'), 'text_parameters': ('text', 'tools'), 'vision_parameters': ('vision',)})[field]: caps.pop(operation, None)
                     entry[field] = value
             row.capabilities = json.dumps(settings.get(row.model_name, {}).get('capabilities', {}), ensure_ascii=False)
             for field in ('request_parameters', 'text_parameters', 'vision_parameters'):
@@ -231,7 +240,7 @@ class ImageConfigStore:
 
     def resolve_text(self, owner):
         current = self.get(owner)
-        model = (current['model_name'] if current and current.get('unified_models') else current.get('text_model_name', '') if current else '')
+        model = (current.get('planning_model_name') or (current['model_name'] if current.get('unified_models') else current.get('text_model_name', ''))) if current else ''
         if not model:
             raise HTTPException(422, '请先设置文字模型。')
         base_url, key = self.resolve_connection(owner, None if current.get('unified_models') else current['text_config_id'])
@@ -242,9 +251,10 @@ class ImageConfigStore:
         unified = bool(current and current.get('unified_models'))
         if unified and not check and not current.get('auto_review'):
             raise HTTPException(422, '未开启自动质检，图片交由人工审核。')
-        if unified and not check and current.get('capabilities', {}).get('vision', {}).get('state') == 'unsupported':
+        vision_caps = current.get('model_settings', {}).get(current.get('planning_model_name') or current.get('model_name'), {}).get('capabilities', {}) if current else {}
+        if unified and not check and vision_caps.get('vision', {}).get('state') == 'unsupported':
             raise HTTPException(422, '当前模型不支持图片理解，图片交由人工审核。')
-        model = current['model_name'] if unified else current.get('vision_model_name', '') if current else ''
+        model = (current.get('planning_model_name') or current['model_name']) if unified else current.get('vision_model_name', '') if current else ''
         if not model:
             raise HTTPException(422, '未配置视觉模型，无法自动质检；请设置视觉模型或改由人工审核。')
         base_url, key = self.resolve_connection(owner, None if unified else current['text_config_id'])
@@ -252,20 +262,28 @@ class ImageConfigStore:
 
     def parameters(self, owner, role):
         current = self.get(owner)
+        if current and current.get('planning_model_name') and role in ('text', 'vision'):
+            return current.get('model_settings', {}).get(current['planning_model_name'], {}).get(role + '_parameters', {})
         return current.get(role + '_parameters', {}) if current else {}
 
-    def call_text(self, owner, prompt, vision=False):
+    def call_text(self, owner, prompt, vision=False, model_name=None):
         from app.agent_runtime import _chat, _vision, AgentError
         from app.model_capabilities import evidence, save_evidence
         current = self.get(owner)
-        url, key, model = self.resolve_vision(owner, check=True) if vision else self.resolve_text(owner)
+        if model_name:
+            if not current or model_name not in current['model_names']: raise HTTPException(422, '请从已添加的模型中选择。')
+            url, key = self.resolve_connection(owner)
+            model = model_name
+        else:
+            url, key, model = self.resolve_vision(owner, check=True) if vision else self.resolve_text(owner)
         role = 'vision' if vision else 'text'
+        parameters = current.get('model_settings', {}).get(model, {}).get(role + '_parameters', {}) if model_name else self.parameters(owner, role)
         try:
             if vision:
                 buffer = io.BytesIO(); Image.new('RGB', (16, 16), 'red').save(buffer, 'PNG')
-                result = _vision(url, key, model, buffer.getvalue(), prompt, parameters=self.parameters(owner, role))
+                result = _vision(url, key, model, buffer.getvalue(), prompt, parameters=parameters)
             else:
-                result = _chat(url, key, model, [{'role': 'user', 'content': prompt}], parameters=self.parameters(owner, role)).get('content', '')
+                result = _chat(url, key, model, [{'role': 'user', 'content': prompt}], parameters=parameters).get('content', '')
             checked = evidence(model, True, message='调用成功。')
         except AgentError as error:
             result = ''
@@ -288,16 +306,22 @@ class ImageConfigStore:
                     'generation_verified': self.result(session, row.generation_job_id)['status'] == 'succeeded',
                     'edit_verified': self.result(session, row.edit_job_id)['status'] == 'succeeded', **RULES}
 
-    def enqueue_verification(self, owner, kind, request_id, reference=None):
+    def enqueue_verification(self, owner, kind, request_id, reference=None, model_name=None):
         with self.lock:
-            return self._enqueue_verification(owner, kind, request_id, reference)
+            return self._enqueue_verification(owner, kind, request_id, reference, model_name)
 
-    def _enqueue_verification(self, owner, kind, request_id, reference=None):
+    def _enqueue_verification(self, owner, kind, request_id, reference=None, model_name=None):
         from app.image_jobs import create_jobs
         self.require_db()
         current = self.get(owner)
         if not current: raise HTTPException(422, '请先保存服务商连接。')
         profile = self.snapshot(owner, current['id'])
+        if model_name:
+            if model_name not in current['model_names']: raise HTTPException(422, '请从已添加的模型中选择。')
+            profile['model'] = model_name
+            settings = current.get('model_settings', {}).get(model_name, {})
+            profile['parameters'] = settings.get('request_parameters', {})
+            profile['capabilities'] = settings.get('capabilities', {})
         profile['verification'] = kind
         # Reuse the same submission ID while pending; explicit resubmission can verify again after failure.
         field = 'generation_job_id' if kind == 'generate' else 'edit_job_id'
@@ -305,7 +329,7 @@ class ImageConfigStore:
             config = self.find(session, owner)
             existing_id = getattr(config, field)
             existing = session.get(ImageJob, existing_id) if existing_id else None
-            if existing and existing.status in ('queued', 'running'):
+            if existing and existing.model_name == profile['model'] and existing.status in ('queued', 'running'):
                 return {'task_id': existing.task_id, 'job_id': existing.id}
         prompt = 'Create a simple red cube on a plain white background. No text or logos.' if kind == 'generate' else 'Edit only the background to light blue. Preserve the product shape, proportions, colour and all existing details. Do not add text or objects.'
         if kind == 'edit' and not reference: raise HTTPException(422, '请明确上传并授权本次编辑验证的参考图。')
@@ -323,6 +347,7 @@ class ModelListInput(BaseModel):
 
 class TextCallInput(BaseModel):
     prompt: str = Field(min_length=1, max_length=16000)
+    model_name: str | None = Field(default=None, max_length=200)
 
 
 def build_image_config_router(store):
@@ -342,11 +367,28 @@ def build_image_config_router(store):
         base_url, key = store.resolve_connection(request.state.image_owner, data.text_config_id)
         return probe_models(base_url, key)
     @router.post('/verify/{kind}', status_code=202)
-    def verify(request: Request, kind: Literal['generate', 'edit', 'text', 'vision'], request_id: Annotated[UUID, Form()], authorized: Annotated[Literal['yes'], Form()], reference: Annotated[UploadFile | None, File()] = None):
+    def verify(request: Request, kind: Literal['generate', 'edit', 'text', 'vision', 'tools'], request_id: Annotated[UUID, Form()], authorized: Annotated[Literal['yes'], Form()], reference: Annotated[UploadFile | None, File()] = None, model_name: Annotated[str | None, Form()] = None):
+        if kind == 'tools':
+            from app.agent_runtime import _chat, AgentError
+            from app.model_capabilities import evidence, save_evidence
+            owner = request.state.image_owner
+            current = store.get(owner)
+            if not current or model_name not in current['model_names']: raise HTTPException(422, '请选择已保存的模型。')
+            url, key = store.resolve_connection(owner)
+            try:
+                result = _chat(url, key, model_name, [{'role': 'user', 'content': '请调用 capability_check 工具，value 填 OK，不要仅回复文字。'}],
+                    [{'type': 'function', 'function': {'name': 'capability_check', 'description': '检查工具调用能力', 'parameters': {'type': 'object', 'properties': {'value': {'type': 'string'}}, 'required': ['value']}}}],
+                    parameters=current.get('model_settings', {}).get(model_name, {}).get('text_parameters', {}))
+                supported = any(call.get('function', {}).get('name') == 'capability_check' for call in result.get('tool_calls', []))
+                checked = evidence(model_name, supported, message='已收到工具调用。' if supported else '未返回工具调用，能力待确认。')
+            except AgentError as error:
+                checked = evidence(model_name, False, error.diagnostic, error.message)
+            save_evidence(store, owner, 'tools', model_name, checked, current['revision'])
+            return {'output': checked['message'], 'capability': checked}
         if kind in ('text', 'vision'):
-            return store.call_text(request.state.image_owner, '请简短描述图片中的颜色。' if kind == 'vision' else '请回复 OK。', vision=kind == 'vision')
-        return store.enqueue_verification(request.state.image_owner, kind, str(request_id), reference.file.read(20 * 1024 * 1024 + 1) if reference else None)
+            return store.call_text(request.state.image_owner, '请简短描述图片中的颜色。' if kind == 'vision' else '请回复 OK。', vision=kind == 'vision', model_name=model_name)
+        return store.enqueue_verification(request.state.image_owner, kind, str(request_id), reference.file.read(20 * 1024 * 1024 + 1) if reference else None, model_name)
     @router.post('/text')
     def text(request: Request, data: TextCallInput):
-        return store.call_text(request.state.image_owner, data.prompt)
+        return store.call_text(request.state.image_owner, data.prompt, model_name=data.model_name)
     return router

@@ -5,14 +5,15 @@ import type { ProbeResult, ConnectionResult } from './modelConfigApi';
 import { readModels as readDraftModels, testConfig as testDraftConnection } from './modelConfigApi';
 import ImageVerificationResult from './ImageVerificationResult';
 
-type Kind = 'text' | 'vision' | 'generate' | 'edit';
+type Kind = 'text' | 'vision' | 'generate' | 'edit' | 'tools';
 type ParameterKey = 'request_parameters' | 'text_parameters' | 'vision_parameters';
 type Options = Record<ParameterKey, Record<string, unknown>>;
 type DraftParameters = Record<ParameterKey, string>;
 type Feedback = { message: string; error?: boolean };
-const kinds: Kind[] = ['text', 'vision', 'generate', 'edit'];
-const labels: Record<Kind, string> = { text: '文字调用', vision: '图片理解', generate: '图片生成', edit: '图片编辑' };
+const kinds: Kind[] = ['text', 'tools', 'vision', 'generate', 'edit'];
+const labels: Record<Kind, string> = { text: '文字调用', tools: '工具调用', vision: '图片理解', generate: '图片生成', edit: '图片编辑' };
 const descriptions: Record<Kind, string> = {
+  tools: '检查模型能否返回工具调用，用于读取技能、PDF 和产品图片；文字回复成功并不代表具备此能力。',
   text: '输入一段文字，查看模型的实际回复；也可直接运行简短的能力检查。',
   vision: '发送系统提供的测试图片，检查模型能否理解图片内容。',
   generate: '使用简短的测试提示词生成一张图片，结果会保存在生成记录中。',
@@ -38,6 +39,8 @@ export default function ImageSettings() {
   const [key, setKey] = useState('');
   const [models, setModels] = useState<string[]>([]);
   const [model, setModel] = useState('');
+  const [planningModel, setPlanningModel] = useState('');
+  const [imageModel, setImageModel] = useState('');
   const [added, setAdded] = useState('');
   const [candidates, setCandidates] = useState<string[]>([]);
   const [options, setOptions] = useState<Record<string, Options>>({});
@@ -114,6 +117,7 @@ export default function ImageSettings() {
         setName(value.name); setUrl(value.base_url); setModels(value.model_names); setModel(value.model_name);
         setOptions(value.model_settings || {}); setParams(toDraft(value));
         setAutoReview(value.auto_review); setGenerationPath(value.generation_path); setEditPath(value.edit_path);
+        setPlanningModel(value.planning_model_name || ''); setImageModel(value.image_model_name || '');
       }
     }).catch(err => { if (alive) setLoadError(err.message); })
       .finally(() => { if (alive) setLoading(false); });
@@ -137,6 +141,7 @@ export default function ImageSettings() {
       const value = await imageConfigRequest<ImageConfiguration>('', {
         name, base_url: url, api_key: key || null, model_name: model, model_names: models,
         model_options: all, ...active, auto_review: autoReview, generation_path: generationPath, edit_path: editPath,
+        planning_model_name: planningModel, image_model_name: imageModel,
       });
       setConfig(value); setKey(''); setDirty(false); clearResult();
       setFeedback({ message: '配置已保存，可以前往图片创作，也可按需检查模型能力。' });
@@ -175,12 +180,12 @@ export default function ImageSettings() {
       let reply: Response;
       if (!test && kind === 'text') {
         reply = await apiFetch('/api/image-configs/text', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt }),
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt, model_name: model }),
           signal: AbortSignal.timeout(130000),
         });
       } else {
         const id = ids.current[kind] || crypto.randomUUID(); ids.current[kind] = id;
-        const body = new FormData(); body.set('request_id', id); body.set('authorized', 'yes');
+        const body = new FormData(); body.set('request_id', id); body.set('authorized', 'yes'); body.set('model_name', model);
         if (kind === 'edit' && reference) body.set('reference', reference);
         reply = await apiFetch('/api/image-configs/verify/' + kind, { method: 'POST', body, signal: AbortSignal.timeout(130000) });
       }
@@ -240,16 +245,23 @@ export default function ImageSettings() {
       </section>
 
       <section className="model-config-card" aria-labelledby="models-heading">
-        <header className="model-card-heading"><div className="model-section-title"><span className="model-section-index" aria-hidden="true">02</span><div><h3 id="models-heading">可用模型 <span className="model-count">{models.length}</span></h3><p>手动添加模型 ID，或读取服务商列表后选择。点击已添加的模型设为默认。</p></div></div></header>
+        <header className="model-card-heading"><div className="model-section-title"><span className="model-section-index" aria-hidden="true">02</span><div><h3 id="models-heading">可用模型 <span className="model-count">{models.length}</span></h3><p>手动添加模型 ID，或读取服务商列表后选择。点击模型查看参数和能力；创作默认分工在下方单独设置。</p></div></div></header>
         <fieldset disabled={locked} className="model-card-body">
           <div className="form-field model-add-field"><label htmlFor="add-model">添加模型</label><div className="model-add-row"><input id="add-model" list="available-models" maxLength={200} value={added} onChange={event => setAdded(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); addModel(); } }} placeholder={candidates.length ? '搜索已读取的模型，或填写模型 ID' : '填写完整模型 ID'} /><button type="button" className="button-secondary" disabled={!added.trim()} onClick={addModel}>添加</button><button type="button" className="button-secondary" disabled={!canInspectConnection} onClick={() => void readModels()}>{busy === 'models' ? '读取中…' : '读取模型'}</button></div><datalist id="available-models">{candidates.map(id => <option key={id} value={id} />)}</datalist>{!canInspectConnection && !busy && <small>填写接口地址和 API Key 后即可读取模型，也可以直接手动添加。</small>}</div>
           {modelFeedback && <p className={'feedback feedback-' + (modelFeedback.error ? 'error' : 'success')} role={modelFeedback.error ? 'alert' : 'status'}>{modelFeedback.message}</p>}
-          <div className="model-registered-list" aria-label="已添加的模型">{models.length ? models.map(id => <button type="button" key={id} className={'model-registered-item ' + (model === id ? 'is-selected' : '')} aria-pressed={model === id} onClick={() => choose(id)}><span aria-hidden="true" className="model-radio-dot" /><strong>{id}</strong>{model === id && <span className="model-default-tag">默认</span>}</button>) : <p className="model-empty">尚未添加模型。填写服务商提供的模型 ID 后点击“添加”。</p>}</div>
+          <div className="model-registered-list" aria-label="已添加的模型">{models.length ? models.map(id => <button type="button" key={id} className={'model-registered-item ' + (model === id ? 'is-selected' : '')} aria-pressed={model === id} onClick={() => choose(id)}><span aria-hidden="true" className="model-radio-dot" /><strong>{id}</strong>{model === id && <span className="model-default-tag">正在查看</span>}</button>) : <p className="model-empty">尚未添加模型。填写服务商提供的模型 ID 后点击“添加”。</p>}</div>
           {model && <details className="model-advanced"><summary>可选请求参数 <span>当前模型 · 未填写时采用服务商默认值</span></summary><p className="model-muted model-parameter-model">适用于 <strong>{model}</strong>，切换模型可分别配置。</p><div className="model-parameter-grid">{parameterFields.map(field => <div className="form-field" key={field.key}><label htmlFor={'params-' + field.key}>{field.label}</label><textarea id={'params-' + field.key} rows={5} spellCheck={false} value={params[field.key]} onChange={event => { setParams(previous => ({ ...previous, [field.key]: event.target.value })); change(); }} /><small>{field.hint}</small></div>)}</div></details>}
-          <div className="model-review-option"><label><input type="checkbox" checked={autoReview} onChange={event => { setAutoReview(event.target.checked); change(); }} /><span>生成后自动看图质检 <small>可选</small></span></label><p>使用当前模型检查生成图片，需具备图片理解能力；关闭时由人工检查。</p></div>
+          <div className="model-review-option"><label><input type="checkbox" checked={autoReview} onChange={event => { setAutoReview(event.target.checked); change(); }} /><span>生成后自动看图质检 <small>可选</small></span></label><p>使用分析与策划模型检查生成图片，需具备图片理解能力；关闭时由人工检查。</p></div>
         </fieldset>
       </section>
 
+      <section className="model-config-card" aria-labelledby="creation-defaults-heading">
+        <header className="model-card-heading"><div><h3 id="creation-defaults-heading">创作默认设置</h3><p>同一服务商的两个模型可共用地址和密钥。这里的选择独立于上方正在查看的模型。</p></div></header>
+        <fieldset disabled={locked} className="model-card-body model-path-grid">
+          <div className="form-field"><label htmlFor="default-planner">分析与策划</label><select id="default-planner" value={planningModel} onChange={event => { setPlanningModel(event.target.value); change(); }}><option value="">新建任务时选择</option>{models.map(id => <option key={id} value={id}>{id}</option>)}</select><small>用于读取技能、分析产品、讨论卖点、编写图需和提示词。</small></div>
+          <div className="form-field"><label htmlFor="default-image-model">图片制作</label><select id="default-image-model" value={imageModel} onChange={event => { setImageModel(event.target.value); change(); }}><option value="">制作图片时选择</option>{models.map(id => <option key={id} value={id}>{id}</option>)}</select><small>确认提示词后才调用；不按模型名称推断生图能力。</small></div>
+        </fieldset>
+      </section>
       <div className="model-save-bar"><p className={dirty ? 'model-draft-state' : 'model-muted'}>{dirty ? '有未保存的修改' : config ? '配置已保存' : '填写接口信息并添加模型后保存'}<small>保存不会调用模型，也不会自动验证能力。</small></p><button className="button-primary" disabled={locked}>{busy === 'save' ? '保存中…' : '保存配置'}</button></div>
       {feedback && <p className={'feedback feedback-' + (feedback.error ? 'error' : 'success')} role={feedback.error ? 'alert' : 'status'}>{feedback.message}</p>}
     </form>

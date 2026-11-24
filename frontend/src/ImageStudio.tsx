@@ -1,199 +1,55 @@
-import { apiFetch } from './apiFetch';
-import ImageSizePicker from './ImageSizePicker';
-import TaskResultsPanel from './TaskResultsPanel';
-import { formatTaskTime, kindLabels, taskLabels as labels, taskCounts, taskPending, type ImageTaskPage } from './imageTaskApi';
-import { startTaskPolling } from './taskPolling';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { listModelOptions as listConfigs, type ModelOption as ModelConfig } from './modelConfigApi';
+import { apiFetch } from './apiFetch';
+import { listModelOptions, type ModelOption } from './modelConfigApi';
 import { creativeRequest, type CreativeTemplate } from './creativeApi';
 import { productValues, type Product, type ProductAsset } from './productApi';
 import TemplateVariableField from './TemplateVariableField';
+import ImageSizePicker from './ImageSizePicker';
+import TaskResultsPanel from './TaskResultsPanel';
 import { useCreationSkill } from './CreationSkillContext';
 
-interface CreatedImage { id: string; task_id: string }
-const errorMessage = (error: unknown) => error instanceof Error ? error.message : '请求失败，请检查服务状态。';
-
-async function readResponse(response: Response): Promise<unknown> {
-  const value = await response.json().catch(() => null);
-  if (!response.ok) {
-    const detail = value?.detail;
-    throw new Error(typeof detail === 'string' ? detail : Array.isArray(detail) ? detail.map((item: {msg: string}) => item.msg).join('；') : `请求失败（HTTP ${response.status}）`);
+export default function ImageStudio({onDraftChange,onSubmittingChange}:{onDraftChange?:(dirty:boolean)=>void;onSubmittingChange?:(busy:boolean)=>void}={}){
+  const skill=useCreationSkill();const [models,setModels]=useState<ModelOption[]>([]);const [modelId,setModelId]=useState('');
+  const [prompt,setPrompt]=useState('');const [size,setSize]=useState('default');const [count,setCount]=useState(1);
+  const [reference,setReference]=useState<File>();const [preview,setPreview]=useState('');const input=useRef<HTMLInputElement>(null);
+  const [taskId,setTaskId]=useState('');const [busy,setBusy]=useState(false);const [error,setError]=useState('');const [reading,setReading]=useState(false);
+  const [uncertain,setUncertain]=useState(false);const requestId=useRef<string|undefined>(undefined);const alive=useRef(true);
+  // Old deep links can still reuse stored data, without a second management UI here.
+  const [product,setProduct]=useState<Product>();const [template,setTemplate]=useState<CreativeTemplate>();
+  const [assets,setAssets]=useState<ProductAsset[]>([]);const [assetId,setAssetId]=useState('');const [values,setValues]=useState<Record<string,string>>({});
+  const selected=models.find(item=>item.id===modelId);const locked=busy||uncertain;
+  useEffect(()=>{onDraftChange?.(!!(prompt.trim()||reference||product||template||size!=='default'||count!==1));},[prompt,reference,product,template,size,count,onDraftChange]);
+  useEffect(()=>{onSubmittingChange?.(busy);return()=>{onSubmittingChange?.(false);};},[busy,onSubmittingChange]);
+  async function loadModels(){setReading(true);try{const items=await listModelOptions();if(alive.current){setModels(items);setModelId(previous=>items.some(item=>item.id===previous)?previous:items[0]?.id||'');}}catch(err){if(alive.current)setError(err instanceof Error?err.message:'模型读取失败');}finally{if(alive.current)setReading(false);}}
+  useEffect(()=>{alive.current=true;void loadModels();const params=new URLSearchParams(window.location.hash.split('?')[1]);
+    if(params.get('product'))creativeRequest<Product[]>('products').then(items=>{const item=items.find(value=>value.id===params.get('product'));if(alive.current&&item){setProduct(item);setValues(productValues(item));return creativeRequest<ProductAsset[]>(`products/${item.id}/assets`).then(list=>{if(alive.current)setAssets(list);});}}).catch(err=>{if(alive.current)setError(err.message);});
+    if(params.get('template'))creativeRequest<CreativeTemplate[]>('templates').then(items=>{const item=items.find(value=>value.id===params.get('template'));if(alive.current&&item){setTemplate(item);setSize(item.size);setCount(item.count);}}).catch(err=>{if(alive.current)setError(err.message);});
+    return()=>{alive.current=false;};
+  },[]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(()=>{if(!reference){setPreview('');return;}const url=URL.createObjectURL(reference);setPreview(url);return()=>URL.revokeObjectURL(url);},[reference]);
+  async function submit(event:FormEvent){
+    event.preventDefault();if(!selected||busy)return;const id=requestId.current||crypto.randomUUID();requestId.current=id;setBusy(true);setError('');let knownRejection=false;let sent=false;
+    try{const form=new FormData();form.set('config_id',selected.config_id);form.set('model_name',selected.model_name);form.set('request_id',id);form.set('prompt',prompt);form.set('size',size);form.set('count',String(count));
+      if(reference)form.set('reference',reference);if(product)form.set('product',JSON.stringify({id:product.id,revision:product.revision,asset_id:assetId||null}));if(template)form.set('template',JSON.stringify({id:template.id,revision:template.revision,variables:values}));skill.append(form);
+      sent=true;const response=await apiFetch('/api/image-jobs/batch',{method:'POST',body:form,signal:AbortSignal.timeout(30000)});knownRejection=response.status>=400&&response.status<500;
+      const result=await response.json();if(!response.ok)throw new Error(typeof result.detail==='string'?result.detail:'提交失败，请检查输入。');
+      if(!alive.current)return;setTaskId(result[0]?.task_id||id);requestId.current=undefined;setUncertain(false);
+    }catch(err){if(!alive.current)return;if(!sent)knownRejection=true;setError((err instanceof Error?err.message:'提交未完成')+(knownRejection?'':' 请先核对生成记录；重发会沿用同一提交标识。'));setUncertain(!knownRejection);if(knownRejection)requestId.current=undefined;}
+    finally{if(alive.current)setBusy(false);}
   }
-  return value;
-}
-
-export default function ImageStudio({ active = true }: { active?: boolean }) {
-  const creationSkill = useCreationSkill();
-  const [products, setProducts] = useState<Product[]>([]);
-  const [productId, setProductId] = useState('');
-  const [assets, setAssets] = useState<ProductAsset[]>([]);
-  const [assetId, setAssetId] = useState('');
-  const [assetsLoading, setAssetsLoading] = useState(false);
-  const product = products.find(item => item.id === productId);
-  const asset = assets.find(item => item.id === assetId);
-  const [templates, setTemplates] = useState<CreativeTemplate[]>([]);
-  const [templateId, setTemplateId] = useState('');
-  const [values, setValues] = useState<Record<string, string>>({});
-  const template = templates.find(item => item.id === templateId);
-  const [configs, setConfigs] = useState<ModelConfig[]>([]);
-  const [configId, setConfigId] = useState('');
-  const [count, setCount] = useState(1);
-  const [currentTaskId, setCurrentTaskId] = useState('');
-  const [prompt, setPrompt] = useState('');
-  const [size, setSize] = useState('default');
-  const [reference, setReference] = useState<File>();
-  const [referencePreview, setReferencePreview] = useState('');
-  const [history, setHistory] = useState<ImageTaskPage>();
-  const [error, setError] = useState('');
-  const [listError, setListError] = useState('');
-  const [historyLoading, setHistoryLoading] = useState(false);
-  const [pageVisible, setPageVisible] = useState(() => !document.hidden);
-  const historyPoller = useRef<ReturnType<typeof startTaskPolling<ImageTaskPage>> | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [loadingConfigs, setLoadingConfigs] = useState(false);
-  const [requestId, setRequestId] = useState<string>();
-  const [ambiguous, setAmbiguous] = useState(false);
-  const alive = useRef(true);
-  const referenceInput = useRef<HTMLInputElement>(null);
-  const selectedConfig = configs.find((item) => item.id === configId);
-  const canGenerate = !!selectedConfig?.has_api_key && creationSkill.ready;
-
-  useEffect(() => {
-    let active = true;
-    creativeRequest<Product[]>('products').then(items => {
-      if (!active) return;
-      setProducts(items);
-      const wanted = new URLSearchParams(window.location.hash.split('?')[1] || '').get('product');
-      const item = items.find(item => item.id === wanted);
-      if (item) { setProductId(item.id); setValues(productValues(item)); }
-      else if (wanted) setError('关联产品不可用，请重新选择产品。');
-    }).catch(err => { if (active) setError(err.message); });
-    return () => { active = false; };
-  }, []);
-
-  useEffect(() => {
-    let active = true; setAssets([]); setAssetsLoading(false);
-    if (!productId) return;
-    setAssetsLoading(true);
-    creativeRequest<ProductAsset[]>(`products/${productId}/assets`).then(items => { if (active) setAssets(items); }).catch(err => { if (active) setError(err.message); }).finally(() => { if (active) setAssetsLoading(false); });
-    return () => { active = false; };
-  }, [productId]);
-
-  useEffect(() => {
-    let active = true;
-    creativeRequest<CreativeTemplate[]>('templates').then(items => {
-      if (!active) return;
-      setTemplates(items);
-      const wanted = new URLSearchParams(window.location.hash.split('?')[1] || '').get('template');
-      const item = items.find(item => item.id === wanted);
-      if (item) { setTemplateId(item.id); setSize(item.size); setCount(item.count); }
-      else if (wanted) setError('关联模板不可用，可以选择其他模板或自由创作。');
-    }).catch(err => { if (active) setError(err.message); });
-    return () => { active = false; };
-  }, []);
-
-  useEffect(() => {
-    if (!reference) { setReferencePreview(''); return; }
-    const url = URL.createObjectURL(reference); setReferencePreview(url);
-    return () => URL.revokeObjectURL(url);
-  }, [reference]);
-
-  async function refreshConfigs() {
-    setLoadingConfigs(true);
-    try {
-      const items = await listConfigs();
-      if (alive.current) {
-        setConfigs(items); setError('');
-        setConfigId((existing) => items.some((item) => item.id === existing && item.model_name.trim()) ? existing : items.find((item) => item.model_name.trim())?.id || '');
-      }
-    } catch (err) { if (alive.current) setError(errorMessage(err)); }
-    finally { if (alive.current) setLoadingConfigs(false); }
-  }
-
-  useEffect(() => {
-    alive.current = true;
-    void refreshConfigs();
-    return () => { alive.current = false; };
-  }, []);
-
-  useEffect(() => {
-    const visibility = () => setPageVisible(!document.hidden);
-    document.addEventListener('visibilitychange', visibility);
-    return () => document.removeEventListener('visibilitychange', visibility);
-  }, []);
-
-  useEffect(() => {
-    if (!active || !pageVisible) { setHistoryLoading(false); return; }
-    const poller = startTaskPolling<ImageTaskPage>({
-      load: async signal => readResponse(await apiFetch('/api/image-jobs/tasks?page_size=6', { cache: 'no-store', signal })) as Promise<ImageTaskPage>,
-      pending: data => data.items.some(taskPending),
-      onData: data => { setHistory(data); setListError(''); },
-      onError: err => setListError(`${errorMessage(err)} 已停止自动刷新，可点击“刷新任务”重试读取。`),
-      onLoading: setHistoryLoading,
-    });
-    historyPoller.current = poller;
-    const focus = () => { void poller.refresh(); };
-    window.addEventListener('focus', focus);
-    return () => { poller.stop(); historyPoller.current = null; window.removeEventListener('focus', focus); };
-  }, [active, pageVisible]);
-
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    if (!selectedConfig || busy) return;
-    const id = requestId || crypto.randomUUID();
-    setRequestId(id); setBusy(true); setError('');
-    const form = new FormData();
-    form.set('config_id', selectedConfig.config_id); form.set('model_name', selectedConfig.model_name); form.set('request_id', id); form.set('count', String(count));
-    form.set('prompt', prompt); form.set('size', size);
-    if (template) form.set('template', JSON.stringify({ id: template.id, revision: template.revision, variables: values }));
-    if (product) form.set('product', JSON.stringify({ id: product.id, revision: product.revision, asset_id: assetId || null }));
-    if (reference) form.set('reference', reference);
-    try {
-      creationSkill.append(form);
-      const response = await apiFetch('/api/image-jobs/batch', { method: 'POST', body: form, signal: AbortSignal.timeout(30000) });
-      const created = await readResponse(response) as CreatedImage[];
-      if (!alive.current) return;
-      setCurrentTaskId(created[0]?.task_id || id); setRequestId(undefined); setAmbiguous(false);
-      void historyPoller.current?.refresh();
-    } catch (err) {
-      if (!alive.current) return;
-      setError(`${errorMessage(err)} 若请求已到达后端，任务仍可能已创建。请先核对下方列表；重发相同提交会复用同一标识。`);
-      setAmbiguous(true);
-      void historyPoller.current?.refresh();
-    } finally { if (alive.current) setBusy(false); }
-  }
-
-  function unlockDraft() {
-    if (!window.confirm('请先核对任务列表。修改输入将放弃原提交标识；再次提交可能产生新的模型调用，是否继续？')) return;
-    setAmbiguous(false); setRequestId(undefined); setError('');
-  }
-
-  return <section className="image-studio" aria-label="自由创作内容">
-    <div className="studio-layout">
-      <form className="studio-form" onSubmit={submit}>
-        <div className="form-field"><label htmlFor="generation-config">生图模型</label><div className="input-with-action"><select id="generation-config" required disabled={busy || ambiguous} value={configId} onChange={(event) => setConfigId(event.target.value)}><option value="">请选择已配置的模型</option>{configs.map((item) => <option key={item.id} value={item.id} disabled={!item.model_name.trim()}>{item.name} · {item.model_name || '未设置模型'}</option>)}</select><button type="button" className="button-secondary" disabled={loadingConfigs || busy || ambiguous} onClick={refreshConfigs}>{loadingConfigs ? '读取中' : '刷新'}</button></div>{!loadingConfigs && !configs.some((item) => item.model_name.trim()) && <small>请先到<a href="#/settings">个人模型配置</a>保存图片模型。</small>}</div>
-        <fieldset disabled={busy || ambiguous}>
-          <div className="form-field"><label htmlFor="creative-product">产品资料</label><select id="creative-product" value={productId} onChange={e => { const item = products.find(item => item.id === e.target.value); setProductId(e.target.value); setAssetId(''); setValues(previous => ({ ...previous, ...productValues(item) })); }}><option value="">不关联产品，临时创作</option>{products.map(item => <option key={item.id} value={item.id}>{item.sku} · {item.name}</option>)}</select><small>产品信息会随本次创作保存。<a href="#/products">管理产品资料</a></small>{product && <small>{product.color || '颜色未填写'} · {product.dimensions || '尺寸未填写'} · 版本 {product.revision}</small>}</div>
-          {product && <div className="form-field"><label htmlFor="creative-asset">产品素材参考图</label><select id="creative-asset" value={assetId} disabled={assetsLoading} onChange={e => { setAssetId(e.target.value); if (e.target.value) { setReference(undefined); if (referenceInput.current) referenceInput.current.value = ''; } }}><option value="">{assetsLoading ? '正在读取素材…' : '不使用素材库图片'}</option>{assets.map(item => <option key={item.id} value={item.id}>{item.kind} · {item.name}</option>)}</select>{asset && <div className="reference-preview"><img src={asset.image_url} alt={asset.name} /></div>}<small>一次选一张参考图；也可以使用下方临时上传。</small></div>}
-          <div className="form-field"><label htmlFor="creative-template">创作模板</label><select id="creative-template" value={templateId} onChange={e => { const item = templates.find(item => item.id === e.target.value); setTemplateId(e.target.value); setValues(productValues(product)); if (item) { setSize(item.size); setCount(item.count); } else { setCount(1); } }}><option value="">自由创作</option>{templates.map(item => <option value={item.id} key={item.id}>{item.name} · 版本 {item.revision}</option>)}</select><small>{template?.purpose || '可套用已保存的制作方法，或直接填写图片要求。'} <a href="#/templates">管理模板</a></small></div>
-          {template?.variables.map(key => <TemplateVariableField key={key} name={key} value={values[key] || ''} product={product} onChange={value => setValues(previous => ({ ...previous, [key]: value }))} />)}
-          {template && <details className="template-preview"><summary>查看模板要求</summary><p>{template.prompt}</p>{template.skill && <p>旧版 Skill：{template.skill}</p>}{template.notes && <p>{template.notes}</p>}</details>}
-          <div className="form-field"><label htmlFor="generation-prompt">{template ? "本次补充要求（可选）" : "图片要求"}</label><textarea id="generation-prompt" required={!template} maxLength={8000} rows={6} value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder="例如：将参考图中的凉棚置于现代庭院，保持立柱、横梁、棚顶结构和颜色，匹配自然光与真实比例。" /><small>{prompt.length} / 8000 字符</small></div>
-          <ImageSizePicker id="generation-size" value={size} onChange={setSize} />
-          <div className="form-field"><label htmlFor="generation-count">生成数量</label><select id="generation-count" value={count} onChange={(event) => setCount(Number(event.target.value))}>{Array.from({ length: 8 }, (_, index) => index + 1).map((value) => <option key={value} value={value}>{value} 张</option>)}</select><small>使用同一制作要求，每张独立生成，便于比较和挑选。</small></div>
-          <div className="form-field"><label htmlFor="reference-image">产品参考图 <span>可选</span></label><input ref={referenceInput} id="reference-image" type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => { const file = event.target.files?.[0]; if (file) setAssetId(''); if (file && file.size > 20 * 1024 * 1024) { setError('参考图不能超过 20 MB。'); event.target.value = ''; setReference(undefined); } else { setReference(file); setError(''); } }} /><small>单张 PNG、JPEG 或 WebP，最多 20 MB、2000 万像素。参考图将随任务发送到所选服务商。</small>{referencePreview && <div className="reference-preview"><img src={referencePreview} alt="本次产品参考图" /><button type="button" className="button-secondary" onClick={() => { setReference(undefined); if (referenceInput.current) referenceInput.current.value = ''; }}>移除参考图</button></div>}</div>
-        </fieldset>
-        {selectedConfig && !canGenerate && <p className="feedback feedback-warning">请先在<a href="#/settings">个人模型配置</a>填写并保存 API Key。</p>}
-        {error && <div className="feedback feedback-error" role="alert">{error}</div>}
-        <div className="form-actions">{ambiguous && <button type="button" className="button-secondary" onClick={unlockDraft}>核对后修改输入</button>}<button type="submit" className="button-primary" disabled={busy || !canGenerate || !selectedConfig?.model_name.trim() || (!template && !prompt.trim()) || !!template?.variables.some(key => !values[key]?.trim())}>{busy ? '正在提交…' : ambiguous ? '重发相同提交' : `生成 ${count} 张图片`}</button></div>
-        <p className="form-footnote">本次将提交 {count} 张图片，按张调用所选服务商并消耗其额度。刷新或切换页面不会取消已提交任务。</p>
-      </form>
-      <div className="studio-result">
-        {currentTaskId ? <TaskResultsPanel taskId={currentTaskId} active={active} /> : <div className="result-placeholder empty-result"><span className="step-icon">图片</span><h3>等待本次创作</h3><p>提交后在这里查看本次任务的图片和运行日志。</p></div>}
-      </div>
-    </div>
-    <div className="section-heading history-heading"><h3>最近任务</h3><div className="history-actions"><button type="button" className="button-secondary" disabled={historyLoading} onClick={() => { void historyPoller.current?.refresh(); }}>{historyLoading ? '读取中…' : '刷新任务'}</button><a className="button-secondary" href="#/library">查看全部生成记录</a></div></div>
-    {listError && <div className="feedback feedback-error" role="alert">{listError}</div>}
-    <div className="job-history">{history?.items.map(task => <button type="button" key={task.id} className={`history-item ${currentTaskId === task.id ? 'history-selected' : ''}`} onClick={() => setCurrentTaskId(task.id)}><span className="history-image-label">{labels[task.status]}</span><span><strong>{kindLabels[task.kind]} · {task.title}</strong><small>{task.counts.total} 张 · {taskCounts(task)} · {formatTaskTime(task.created_at)}</small></span></button>)}</div>
-  </section>;
+  return <section className="image-studio" aria-label="生图内容"><div className="studio-layout"><form className="studio-form" onSubmit={submit}>
+    <div className="form-field"><label htmlFor="generation-config">图片模型</label><div className="input-with-action"><select id="generation-config" required disabled={locked} value={modelId} onChange={e=>setModelId(e.target.value)}><option value="">选择已配置模型</option>{models.map(item=><option key={item.id} value={item.id}>{item.model_name}</option>)}</select><button type="button" className="button-secondary" disabled={locked||reading} onClick={()=>void loadModels()}>{reading?'读取中…':'刷新'}</button></div>{!reading&&!models.length&&<small>先到<a href="#/settings">模型配置</a>保存模型连接。</small>}</div>
+    <fieldset disabled={locked}>
+      {(product||template)&&<div className="production-source"><span>已载入：{[product?.name,template?.name].filter(Boolean).join(' / ')}</span><a href="#/studio">清除已载入内容</a></div>}
+      {product&&!!assets.length&&<div className="form-field"><label htmlFor="creative-asset">已载入产品的参考图</label><select id="creative-asset" value={assetId} onChange={e=>{setAssetId(e.target.value);setReference(undefined);if(input.current)input.current.value='';}}><option value="">选择参考图或临时上传</option>{assets.map(item=><option key={item.id} value={item.id}>{item.kind} · {item.name}</option>)}</select></div>}
+      {template?.variables.map(name=><TemplateVariableField key={name} name={name} value={values[name]||''} product={product} onChange={value=>setValues(previous=>({...previous,[name]:value}))}/>)}
+      {template&&<details><summary>已载入的制作要求</summary><p>{template.prompt}</p><p>{template.notes}</p></details>}
+      <div className="form-field"><label htmlFor="generation-prompt">{template?'本次补充要求':'图片要求 / 提示词'}</label><textarea id="generation-prompt" rows={8} maxLength={8000} required={!template} value={prompt} onChange={e=>setPrompt(e.target.value)} placeholder="描述要生成的画面；有参考图时说明需要保留和修改的内容。"/></div>
+      <div className="form-field"><label htmlFor="reference-image">参考图（选填）</label><input ref={input} id="reference-image" type="file" accept=".png,.jpg,.jpeg,.webp" onChange={e=>{const file=e.target.files?.[0];if(file&&file.size>20*1024*1024){setError('参考图不能超过 20 MB。');e.target.value='';return;}setReference(file);if(file)setAssetId('');}}/><small>参考图将随本次请求传入所选服务商。</small>{preview&&<div className="reference-preview"><img src={preview} alt="本次参考图"/><button type="button" onClick={()=>{setReference(undefined);if(input.current)input.current.value='';}}>移除</button></div>}</div>
+      <ImageSizePicker id="generation-size" value={size} onChange={setSize}/><div className="form-field"><label htmlFor="generation-count">生成数量</label><select id="generation-count" value={count} onChange={e=>setCount(Number(e.target.value))}>{Array.from({length:8},(_,i)=><option key={i+1} value={i+1}>{i+1} 张</option>)}</select><small>同一要求生成多张候选图。不同图片用途请在图片策划中安排。</small></div>
+    </fieldset>
+    {error&&<p className="feedback feedback-error" role="alert">{error} <a href="#/library">核对生成记录</a></p>}
+    {selected&&!selected.has_api_key&&<p className="feedback feedback-warning">请在<a href="#/settings">模型配置</a>重新填写 API Key。</p>}
+    <div className="form-actions">{uncertain&&<button type="button" className="button-secondary" onClick={()=>{if(window.confirm('已核对生成记录，确定修改输入并允许建立新的提交吗？')){setUncertain(false);requestId.current=undefined;}}}>核对后修改输入</button>}<button type="submit" className="button-primary" disabled={busy||!selected?.has_api_key||!skill.ready||(!template&&!prompt.trim())||!!template?.variables.some(name=>!values[name]?.trim())}>{busy?'正在提交…':uncertain?'重发同一次提交':`生成 ${count} 张图片`}</button></div>
+  </form><div className="studio-result">{taskId?<TaskResultsPanel taskId={taskId}/>:<div className="result-placeholder empty-result"><span className="step-icon">图片</span><h3>本次生成结果</h3><p>提交后显示图片、进度和日志。历史结果在生成记录中查看。</p></div>}</div></div></section>;
 }

@@ -101,8 +101,10 @@ def test_private_connections_isolated_even_from_admin(accounts):
 def test_disable_revokes_sessions_cancels_queue_and_blocks_other_task_mutations(accounts):
     admin,app,_,_=accounts
     first,user=member(accounts,'alice');second,_=member(accounts,'bob')
-    config=first.put('/api/image-configs',json={'base_url':'https://images.example.com/v1','api_key':'private-key'}).json()
-    job=first.post('/api/image-jobs/batch',files={k:(None,v) for k,v in {'config_id':config['id'],'request_id':str(uuid4()),'prompt':'test'}.items()}).json()[0]
+    config=first.put('/api/image-configs',json={'base_url':'https://images.example.com/v1','api_key':'private-key','model_name':'image-test'}).json()
+    submitted=first.post('/api/image-jobs/batch',files={k:(None,v) for k,v in {'config_id':config['id'],'request_id':str(uuid4()),'prompt':'test'}.items()})
+    assert submitted.status_code==202,submitted.text
+    job=submitted.json()[0]
     assert job['owner_id']==user['id'] and not second.get('/api/image-jobs/'+job['id']).json()['can_edit']
     for path in (job['id'], 'tasks/'+job['task_id']):
         assert second.post('/api/image-jobs/'+path+'/cancel',files={'action':(None,'cancel')}).status_code==403

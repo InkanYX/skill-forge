@@ -54,6 +54,8 @@ def process_standard_one(store, executor=execute_cli, preparer=None, reviewer=No
     try:
         directory = artifact(store.directory, identifier, 'result.png').parent
         reference = (directory / 'reference.png').read_bytes() if mode == 'edit' else None
+        if profile.get('reference_manifest'):
+            reference = [reference] + [(directory / f'reference-{index}.png').read_bytes() for index in range(2, len(profile['reference_manifest']) + 1)]
         requirements = prompt
         apply_skill = bool(profile.get('skill_workflow')) and not profile.get('prepared_by_agent')
         if apply_skill:
@@ -72,12 +74,17 @@ def process_standard_one(store, executor=execute_cli, preparer=None, reviewer=No
                     raise CancelledBeforeImage()
                 active.image_calls += 1
         result = executor(directory, profile, key, prompt, reference)
+        if profile.get('skill_execution'):
+            result['skill_execution'] = profile['skill_execution']
         status, message = 'succeeded', '原生图片和预览已保存，等待人工检查。'
-        if apply_skill:
+        if apply_skill or profile.get('review_model'):
             # A failed review never erases an image that has already been paid for.
             result['skill_workflow'] = profile['skill_workflow']
             try:
-                checked = (reviewer or review)(store, owner, directory, requirements, prompt, identity_reference(store, profile, reference))
+                review_reference = reference[0] if isinstance(reference, list) else reference
+                checked = (reviewer or review)(store, owner, directory, requirements, prompt, identity_reference(store, profile, review_reference),
+                    **({'profile': profile} if profile.get('review_model') else {}))
+                if isinstance(reference, list): checked['compared_reference_count'] = 1
             except Exception:
                 checked = {'status': 'uncertain', 'summary': '质检执行中断，待人工审核。', 'checks': [],
                            'method': 'vision', 'compared_reference': False}

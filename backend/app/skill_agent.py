@@ -175,7 +175,7 @@ def mount_skills(engine, storage: Path, workspace: Path, snapshot: dict):
     return entries, aliases
 
 
-def plan_with_skills(engine, storage, directory, snapshot, instructions, brief, provider):
+def plan_with_skills(engine, storage, directory, snapshot, instructions, brief, provider, extra_tools=None):
     directory.mkdir(parents=True, exist_ok=True)
     # Keep virtual filesystem paths short on Windows, independently of job nesting.
     with TemporaryDirectory(prefix='sf-skills-') as temporary:
@@ -190,7 +190,7 @@ def plan_with_skills(engine, storage, directory, snapshot, instructions, brief, 
             if entry is None:
                 raise GenerationError('指定技能无法加载，未提交图片请求。')
             backend.note(entry, entries[entry]['content'], method='pinned')
-        agent = create_agent(model=ProviderModel(provider), system_prompt=instructions,
+        agent = create_agent(model=ProviderModel(provider), system_prompt=instructions, tools=extra_tools or [],
             middleware=[FilesystemMiddleware(backend=backend, tools=['ls', 'read_file', 'glob', 'grep'],
                                              tool_token_limit_before_evict=None, human_message_token_limit_before_evict=None),
                         SkillsMiddleware(backend=backend, sources=['/skills/'])])

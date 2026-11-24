@@ -8,6 +8,7 @@ export interface ImageConfiguration {
   capabilities: Record<string, {state: string; model: string; message: string; diagnostic?: {response_body?: string; http_status?: number}; checked_at: string}>;
   model_settings: Record<string, {request_parameters: Record<string,unknown>;text_parameters:Record<string,unknown>;vision_parameters:Record<string,unknown>;capabilities?:ImageConfiguration['capabilities']}>;
   auto_review: boolean; unified_models: boolean;
+  planning_model_name: string; image_model_name: string;
   has_api_key: boolean; updated_at: string;
   generation: {status: string; job_id: string | null; task_id: string | null; updated_at: string | null};
   edit: ImageConfiguration['generation'];

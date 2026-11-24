@@ -115,7 +115,7 @@ def create_job(engine, directory, config_id, model_name, prompt, size, request_i
     return create_jobs(engine, directory, config_id, model_name, prompt, size, request_id, reference, 1)[0]
 
 
-def create_jobs(engine, directory, config_id, model_name, prompt, size, request_id, reference, count, template_request=None, product_request=None, source_job_id=None, image_set=None, standard_config=None, owner_id=None):
+def create_jobs(engine, directory, config_id, model_name, prompt, size, request_id, reference, count, template_request=None, product_request=None, source_job_id=None, image_set=None, standard_config=None, owner_id=None, references=None):
     if not 1 <= count <= 8:
         raise HTTPException(422, "每次请选择 1 至 8 张图片。")
     try:
@@ -130,7 +130,12 @@ def create_jobs(engine, directory, config_id, model_name, prompt, size, request_
             reference = normalize_image(reference)
         except GenerationError as error:
             raise HTTPException(422, error.message) from None
+    if references:
+        try: references = [normalize_image(value) for value in references]
+        except GenerationError as error: raise HTTPException(422, error.message) from None
+        if len(references) > 8: raise HTTPException(422, '每张图片最多使用 8 张参考图。')
     inputs = [config_id, model_name, prompt, size, hashlib.sha256(reference).hexdigest() if reference else None]
+    if references: inputs.append([hashlib.sha256(value).hexdigest() for value in references])
     if count > 1:
         inputs.append(count)
     if template_request:
@@ -206,7 +211,7 @@ def create_jobs(engine, directory, config_id, model_name, prompt, size, request_
                 raise HTTPException(422, '部分图片合并后的要求过长，请精简公共要求或模板。')
         if standard_config:
             selected_model = standard_config.get('model', '')
-            if model_name and model_name in standard_config.get('models', []):
+            if model_name and model_name in standard_config.get('models', []) and not standard_config.get('preserve_prompt'):
                 fallback_parameters = standard_config.get('parameters', {}) if model_name == standard_config.get('model') else {}
                 selected_model = model_name
                 standard_config = dict(standard_config)
@@ -227,7 +232,7 @@ def create_jobs(engine, directory, config_id, model_name, prompt, size, request_
                 primary_skill = select_skill(engine, directory, standard_config['workflow_owner'],
                                              standard_config.get('skill_choice'), inherited_skill)
             for plan in plans:
-                if plan['size'] != 'default':
+                if plan['size'] != 'default' and not standard_config.get('preserve_prompt'):
                     width, height = plan['size'].split('x')
                     from math import gcd
                     divisor = gcd(int(width), int(height))
@@ -319,6 +324,9 @@ def create_jobs(engine, directory, config_id, model_name, prompt, size, request_
                 path = artifact(directory, identifier, "reference.png")
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_bytes(reference)
+            if references:
+                for ref_index, value in enumerate(references[1:], start=2):
+                    artifact(directory, identifier, f'reference-{ref_index}.png').write_bytes(value)
             session.add(row)
             row.template_snapshot = json.dumps(snapshot, ensure_ascii=False)
             row.product_snapshot = json.dumps(product_snapshot, ensure_ascii=False)

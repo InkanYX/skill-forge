@@ -75,7 +75,9 @@ def generate_image(base_url: str, api_key: str, model: str, prompt: str, size: s
     parameters = {**(request_parameters if request_parameters is not None else {'n': 1}), 'model': model, 'prompt': prompt}
     if request_parameters is None and size != "default":
         parameters["size"] = size
-    request_args = {"data": {key: json.dumps(value, ensure_ascii=False) if isinstance(value, (dict, list, bool)) else str(value) for key, value in parameters.items()}, "files": {"image": ("reference.png", reference, "image/png")}} if reference else {"json": parameters}
+    refs = reference if isinstance(reference, list) else [reference] if reference else []
+    files = [('image[]' if len(refs) > 1 else 'image', (f'reference-{index + 1}.png', value, 'image/png')) for index, value in enumerate(refs)]
+    request_args = {"data": {key: json.dumps(value, ensure_ascii=False) if isinstance(value, (dict, list, bool)) else str(value) for key, value in parameters.items()}, "files": files} if refs else {"json": parameters}
     try:
         target, headers, extensions = pinned_url(endpoint)
         headers["Authorization"] = f"Bearer {api_key}"

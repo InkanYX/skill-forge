@@ -60,7 +60,7 @@ def prepare(store, owner, profile: dict, directory: Path, prompt: str, reference
     (directory / 'input-prompt.txt').write_text(prompt, encoding='utf-8')
     connection = store.get(owner)
     unified = bool(connection and connection.get('unified_models'))
-    if unified and connection.get('capabilities', {}).get('text', {}).get('state') != 'supported':
+    if unified and not connection.get('planning_model_name') and connection.get('capabilities', {}).get('text', {}).get('state') != 'supported':
         context, files = skill_context(store.directory, snapshot)
         return apply_rules(directory, snapshot, context, files, prompt, '文字辅助尚未确认可用，直接应用制作规范；普通文字调用入口仍可使用和验证。')
     reference_hash = hashlib.sha256(reference).hexdigest() if reference else None
@@ -155,10 +155,14 @@ def prepare(store, owner, profile: dict, directory: Path, prompt: str, reference
     return final_prompt
 
 
-def review(store, owner, directory: Path, requirements: str, prompt: str, reference: bytes | None) -> dict:
+def review(store, owner, directory: Path, requirements: str, prompt: str, reference: bytes | None, profile=None) -> dict:
     from app.agent_runtime import _vision, AgentError
     try:
-        url, key, model = store.resolve_vision(owner)
+        if profile:
+            url, key, model = profile['base_url'], store.key(profile['id'], profile['revision']), profile['review_model']
+            if not key: raise HTTPException(409, '运行时密钥已失效。')
+        else:
+            url, key, model = store.resolve_vision(owner)
     except HTTPException:
         pending = {'status': 'uncertain', 'summary': '未配置视觉模型，待人工审核。', 'checks': [],
                    'method': 'manual_pending', 'compared_reference': False}
@@ -167,7 +171,8 @@ def review(store, owner, directory: Path, requirements: str, prompt: str, refere
     try:
         image = (directory / 'preview.jpg') if (directory / 'preview.jpg').is_file() else directory / 'result.png'
         raw = _vision(url, key, model, image.read_bytes(), REVIEW_INSTRUCTIONS
-                      + '\n用户制作要求：' + requirements + '\n实际提示词：' + prompt, reference=reference, parameters=store.parameters(owner, 'vision'))
+                      + '\n用户制作要求：' + requirements + '\n实际提示词：' + prompt, reference=reference,
+                      parameters=profile.get('review_parameters', {}) if profile else store.parameters(owner, 'vision'))
         result = {**parse_review(raw), 'method': 'vision', 'model': model,
                   'compared_reference': reference is not None}
     except (AgentError, GenerationError, OSError) as error:

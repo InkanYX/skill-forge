@@ -16,6 +16,8 @@ CLI = BACKEND / 'vendor/imagegen/image_gen.py'
 
 
 def execute_cli(directory, profile, key, prompt, reference):
+    if isinstance(reference, list) and profile.get('backend') == 'imagegen-cli':
+        raise GenerationError('旧脚本执行方式尚未适配多参考图，未提交请求；请使用兼容图片接口。')
     if profile.get('backend') != 'imagegen-cli':
         return execute_compatible(directory, profile, key, prompt, reference)
     directory.mkdir(parents=True, exist_ok=True)
@@ -95,7 +97,9 @@ def execute_compatible(directory, profile, key, prompt, reference):
         'parameters': parameters, 'base_url': profile['base_url'], 'mode': mode, 'prompt_file': 'prompt.txt',
         'output_file': output_name, 'native_format': extension, 'native_pixels': pixels,
         'output_sha256': hashlib.sha256(raw).hexdigest(), 'review': {'status': 'pending', 'method': 'human'},
-        'references': [{'file': 'reference.png', 'role': 'edit_target', 'sha256': hashlib.sha256(reference).hexdigest()}] if reference is not None else [],
+        'references': [{**(profile.get('reference_manifest', [])[index] if index < len(profile.get('reference_manifest', [])) else {'role': 'edit_target'}),
+            'file': 'reference.png' if index == 0 else f'reference-{index + 1}.png', 'sha256': hashlib.sha256(value).hexdigest()}
+            for index, value in enumerate(reference if isinstance(reference, list) else [reference] if reference is not None else [])],
         'elapsed_ms': int((time.monotonic() - started) * 1000)}
     (directory / 'execution.json').write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding='utf-8')
     return manifest
