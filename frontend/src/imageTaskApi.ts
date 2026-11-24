@@ -33,7 +33,7 @@ export interface ImageTask {
   created_at: string; updated_at: string; product_snapshot: ProductSnapshot; template_snapshot: TemplateSnapshot;
   counts: Record<string, number>; completed_job_ids: string[];
 }
-export interface ImageTaskDetail extends ImageTask { items: ImageRecord[] }
+export interface ImageTaskDetail extends ImageTask { items: ImageRecord[]; batches?: {execution_id:string; job_ids:string[]; created_at:string}[] }
 export interface ImageTaskPage { items: ImageTask[]; total: number; page: number; page_size: number }
 export const taskLabels: Record<string, string> = { all: '全部状态', queued: '排队中', running: '生成中', succeeded: '已完成', partial: '部分完成', failed: '生成失败', unknown: '结果待确认', cancelled: '已取消', needs_review: '待人工审核', needs_changes: '需要修改', limit_reached: '已达执行上限' };
 export const kindLabels: Record<string, string> = { free: '自由创作', set: '成套制作', edit: '图片修改', skill: '图片创作' };

@@ -984,3 +984,10 @@ button.product-step:hover { border-color:#c5d8f1; background:#f7faff; color:#245
 .experience-evidence{display:block;font-size:13px;color:var(--muted,#65758b);margin:6px 0 12px}
 .experience-used{border:1px solid var(--border,#dce3ec);padding:14px 16px;border-radius:10px;margin:14px 0;background:#f7faf9}
 @media(max-width:600px){.product-feedback-row{grid-template-columns:64px minmax(0,1fr);gap:10px}.product-feedback-row img{width:64px;height:64px}}
+.image-batch-selector { display:flex; flex-wrap:wrap; align-items:center; gap:18px; padding:16px 18px; margin:18px 0; background:#f2f5f8; border-left:3px solid #486780; }
+.image-batch-selector label { display:grid; gap:8px; color:#34455b; font-size:13px; font-weight:600; min-width:240px; }
+.image-batch-selector select { max-width:100%; padding:9px 12px; border:1px solid #ccd6df; border-radius:6px; background:white; }
+.image-batch-selector p { flex:1; min-width:180px; font-size:13px; color:#64748b; }
+.image-batch-heading { color:#425976; }
+.image-delete-actions { padding:0 16px 14px; display:flex; flex-wrap:wrap; align-items:center; gap:10px; font-size:12px; }
+.image-delete-button { border:0; background:transparent; color:#a64949; padding:6px 0; cursor:pointer; }

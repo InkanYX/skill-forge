@@ -10,7 +10,7 @@ from fastapi import APIRouter, HTTPException, Query, Form
 from sqlalchemy import select, func, case, cast, JSON, type_coerce, or_, update, literal, union_all
 from sqlalchemy.orm import Session
 
-from app.database import ImageJob, CreativeCase, AgentRun, ImageConfiguration
+from app.database import ImageJob, CreativeCase, AgentRun, ImageConfiguration, CreationProject
 from app.creation_conversations import conversation_id, conversation_key, latest_turns
 
 STATES = ('queued', 'running', 'succeeded', 'failed', 'unknown', 'cancelled')
@@ -63,12 +63,17 @@ def build_task_router(engine, job_view):
         if engine is None: raise HTTPException(503, '请先配置数据库并执行迁移。')
 
     def task_rows(session, identifier):
-        return list(session.scalars(select(ImageJob).where(task_key() == identifier).order_by(ImageJob.task_index, ImageJob.created_at, ImageJob.id)))
+        return list(session.scalars(select(ImageJob).where(task_key() == identifier, ImageJob.deleted_at.is_(None)).order_by(ImageJob.task_index, ImageJob.created_at, ImageJob.id)))
 
     def summary(session, identifier, rows):
         run = session.scalar(select(AgentRun).where(conversation_key() == identifier)
                              .order_by(AgentRun.turn_index.desc(), AgentRun.created_at.desc(), AgentRun.id.desc()).limit(1))
         if not rows and not run:
+            removed = session.scalar(select(ImageJob).where(task_key() == identifier).limit(1))
+            if removed:
+                result = summarize([removed])
+                result.update(counts={**dict.fromkeys(STATES, 0), 'total': 0}, completed_job_ids=[], status='cancelled')
+                return result
             raise HTTPException(404, '生成任务不存在。')
         root = session.get(AgentRun, identifier) if run else None
         config = session.get(ImageConfiguration, run.config_id) if run and not rows else None
@@ -77,7 +82,9 @@ def build_task_router(engine, job_view):
     def detail(session, identifier):
         rows = task_rows(session, identifier)
         cases = dict(session.execute(select(CreativeCase.job_id, CreativeCase.id).where(CreativeCase.job_id.in_([row.id for row in rows]))).all())
-        return {**summary(session, identifier, rows), 'items': [{**job_view(row).model_dump(), 'case_id': cases.get(row.id), 'diagnostic': json.loads(row.provider_diagnostic or '{}') or None} for row in rows]}
+        project = session.get(CreationProject, identifier)
+        return {**summary(session, identifier, rows), **({'batches': json.loads(project.content).get('batches', [])} if project else {}),
+                'items': [{**job_view(row).model_dump(), 'case_id': cases.get(row.id), 'diagnostic': json.loads(row.provider_diagnostic or '{}') or None} for row in rows]}
 
     @router.get('')
     def list_tasks(page: Annotated[int, Query(ge=1, le=100000)] = 1, page_size: Annotated[int, Query(ge=1, le=24)] = 8,
@@ -89,13 +96,13 @@ def build_task_router(engine, job_view):
                    *(func.sum(case((ImageJob.status == item, 1), else_=0)).label(item) for item in STATES)]
         orphan = ~select(AgentRun.id).where(AgentRun.id == ImageJob.agent_run_id).correlate(ImageJob).exists()
         direct = select(task_key().label('id'), func.min(ImageJob.created_at).label('created_at'), *columns,
-                        literal(None).label('agent_status'), literal('').label('goal')).where(orphan).group_by(task_key())
+                        literal(None).label('agent_status'), literal('').label('goal')).where(orphan, ImageJob.deleted_at.is_(None)).group_by(task_key())
         heads = select(AgentRun.id.label('run_id'), conversation_key().label('id'), AgentRun.status,
                        AgentRun.goal).where(AgentRun.id.in_(latest_turns())).subquery()
         roots = select(conversation_key().label('id'), func.min(AgentRun.created_at).label('created_at'))\
             .group_by(conversation_key()).subquery()
         assisted = select(heads.c.id, roots.c.created_at, *columns, heads.c.status.label('agent_status'), heads.c.goal)\
-            .select_from(heads.join(roots, heads.c.id == roots.c.id).outerjoin(ImageJob, task_key() == heads.c.id))\
+            .select_from(heads.join(roots, heads.c.id == roots.c.id).outerjoin(ImageJob, (task_key() == heads.c.id) & ImageJob.deleted_at.is_(None)))\
             .group_by(heads.c.id, roots.c.created_at, heads.c.status, heads.c.goal)
         grouped = union_all(direct, assisted).subquery()
         state = case((grouped.c.agent_status.is_not(None) & (grouped.c.agent_status != 'waiting_images'), grouped.c.agent_status),
@@ -116,15 +123,15 @@ def build_task_router(engine, job_view):
             note = select(CreativeCase.id).where(CreativeCase.job_id == ImageJob.id, or_(*(column.icontains(text, autoescape=True) for column in (CreativeCase.title, CreativeCase.experience, CreativeCase.issues)))).correlate(ImageJob).exists()
             text_match = or_(task_key().icontains(text, autoescape=True), ImageJob.prompt.icontains(text, autoescape=True), ImageJob.model_name.icontains(text, autoescape=True), ImageJob.set_name.icontains(text, autoescape=True), ImageJob.shot_name.icontains(text, autoescape=True), product['sku'].as_string().icontains(text, autoescape=True), product['name'].as_string().icontains(text, autoescape=True), template['name'].as_string().icontains(text, autoescape=True), note)
             conditions.append(or_(grouped.c.goal.icontains(text, autoescape=True), grouped.c.id.icontains(text, autoescape=True),
-                                  select(ImageJob.id).where(task_key() == grouped.c.id, text_match).correlate(grouped).exists()))
+                                  select(ImageJob.id).where(task_key() == grouped.c.id, ImageJob.deleted_at.is_(None), text_match).correlate(grouped).exists()))
         if matches:
-            conditions.append(select(ImageJob.id).where(task_key() == grouped.c.id, *matches).correlate(grouped).exists())
+            conditions.append(select(ImageJob.id).where(task_key() == grouped.c.id, ImageJob.deleted_at.is_(None), *matches).correlate(grouped).exists())
         with Session(engine) as session:
             total = session.scalar(select(func.count()).select_from(grouped).where(*conditions))
             identifiers = list(session.scalars(select(grouped.c.id).where(*conditions).order_by(grouped.c.created_at.desc(), grouped.c.id.desc()).offset((page - 1) * page_size).limit(page_size)))
             grouped_rows = defaultdict(list)
             if identifiers:
-                for row in session.scalars(select(ImageJob).where(task_key().in_(identifiers)).order_by(ImageJob.task_index, ImageJob.created_at, ImageJob.id)):
+                for row in session.scalars(select(ImageJob).where(task_key().in_(identifiers), ImageJob.deleted_at.is_(None)).order_by(ImageJob.task_index, ImageJob.created_at, ImageJob.id)):
                     grouped_rows[row.task_id or row.request_id].append(row)
             return {'items': [summary(session, identifier, grouped_rows[identifier]) for identifier in identifiers], 'total': total, 'page': page, 'page_size': page_size}
 
@@ -133,7 +140,7 @@ def build_task_router(engine, job_view):
         require_db()
         with Session(engine) as session:
             row = session.get(ImageJob, str(job_id))
-            if row is None: raise HTTPException(404, '图片记录不存在。')
+            if row is None or row.deleted_at: raise HTTPException(404, '图片记录不存在。')
             return detail(session, row.task_id or row.request_id)
 
     @router.get('/{task_id}')

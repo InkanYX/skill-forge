@@ -479,7 +479,7 @@ def build_image_router(engine, directory: Path, image_configs=None):
     def list_jobs():
         require_database()
         with Session(engine) as session:
-            return [view(row) for row in session.scalars(select(ImageJob).order_by(ImageJob.created_at.desc()).limit(30))]
+            return [view(row) for row in session.scalars(select(ImageJob).where(ImageJob.deleted_at.is_(None)).order_by(ImageJob.created_at.desc()).limit(30))]
 
     @router.post('/sets', response_model=list[JobView], status_code=202)
     def submit_set(request: Request, config_id: Annotated[UUID, Form()], request_id: Annotated[UUID, Form()], plan: Annotated[str, Form(max_length=80000)], prompt: Annotated[str, Form(max_length=8000)] = '', template: Annotated[str, Form(max_length=240000)] = '', product: Annotated[str, Form(max_length=2000)] = '', reference: Annotated[UploadFile | None, File()] = None, model_name: Annotated[str, Form(max_length=200)] = '', skill: Annotated[str, Form(max_length=2000)] = ''):
@@ -499,7 +499,7 @@ def build_image_router(engine, directory: Path, image_configs=None):
     def get_set(set_id: UUID):
         require_database()
         with Session(engine) as session:
-            rows = list(session.scalars(select(ImageJob).where(ImageJob.set_id == str(set_id)).order_by(ImageJob.shot_index, ImageJob.created_at, ImageJob.id).limit(201)))
+            rows = list(session.scalars(select(ImageJob).where(ImageJob.set_id == str(set_id), ImageJob.deleted_at.is_(None)).order_by(ImageJob.shot_index, ImageJob.created_at, ImageJob.id).limit(201)))
             if not rows:
                 raise HTTPException(404, '套图记录不存在。')
             return {'id': str(set_id), 'name': rows[0].set_name, 'items': [view(row) for row in rows[:200]], 'has_more': len(rows) > 200}
@@ -525,7 +525,7 @@ def build_image_router(engine, directory: Path, image_configs=None):
         if engine.dialect.name == 'sqlite':
             product = type_coerce(ImageJob.product_snapshot, JSON)
             template = type_coerce(ImageJob.template_snapshot, JSON)
-        conditions = []
+        conditions = [ImageJob.deleted_at.is_(None)]
         if favorite:
             conditions.append(ImageJob.is_favorite.is_(True))
         if has_notes:
@@ -584,12 +584,36 @@ def build_image_router(engine, directory: Path, image_configs=None):
             profile["experience_product_id"] = str(experience_product_id)
         return create_jobs(engine, directory, str(config_id), model_name, prompt, size, str(request_id), content, count, template_request, product_request, str(source_job_id) if source_job_id else None, standard_config=profile)
 
+    @router.delete('/{job_id}')
+    def delete_image(job_id: UUID):
+        require_database()
+        with Session(engine) as session, session.begin():
+            row = session.get(ImageJob, str(job_id), with_for_update=True)
+            if row is None:
+                raise HTTPException(404, '图片记录不存在。')
+            require_edit(row)
+            if row.status in ('queued', 'running', 'unknown'):
+                raise HTTPException(409, '请先等待任务结束并确认结果，再删除图片。')
+            row.deleted_at = row.deleted_at or now()
+            return {'id': row.id, 'deleted': True, 'recoverable': True}
+
+    @router.post('/{job_id}/restore')
+    def restore_image(job_id: UUID, action: Annotated[Literal['restore'], Form()]):
+        require_database()
+        with Session(engine) as session, session.begin():
+            row = session.get(ImageJob, str(job_id), with_for_update=True)
+            if row is None:
+                raise HTTPException(404, '图片记录不存在。')
+            require_edit(row)
+            row.deleted_at = None
+            return {'id': row.id, 'deleted': False}
+
     @router.get("/{job_id}", response_model=JobView)
     def get_job(job_id: UUID):
         require_database()
         with Session(engine) as session:
             row = session.get(ImageJob, str(job_id))
-            if row is None:
+            if row is None or row.deleted_at:
                 raise HTTPException(404, "任务不存在。")
             return view(row).model_copy(update={'case_id': session.scalar(select(CreativeCase.id).where(CreativeCase.job_id == row.id))})
 

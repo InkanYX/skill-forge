@@ -74,7 +74,7 @@ def test_every_image_has_pinned_skill_and_preparation_is_reused_but_review_is_pe
     images, values = submit(workflow, count=2, reference=png())
     first = images[0]
     skill = first['execution_profile']['skill_workflow']['primary']
-    assert skill['name'] == 'premium-product-image-workflow' and skill['version'] == '2.5.1'
+    assert skill['name'] == 'premium-product-image-workflow' and skill['version'] == '2.5.2'
     assert {item['task_id'] for item in images} == {first['task_id']}
     assert process_standard_one(store, fake_executor)
     assert process_standard_one(store, fake_executor)

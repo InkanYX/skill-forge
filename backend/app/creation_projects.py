@@ -246,7 +246,7 @@ def project_view(session, row, detail=True):
         latest = json.loads(source.content).get('active', {}).get('analysis') if source else None
         result['source_updated'] = latest != data.get('source', {}).get('document_id')
     if detail:
-        jobs = list(session.scalars(select(ImageJob).where(ImageJob.task_id == row.id).order_by(ImageJob.task_index, ImageJob.created_at)))
+        jobs = list(session.scalars(select(ImageJob).where(ImageJob.task_id == row.id, ImageJob.deleted_at.is_(None)).order_by(ImageJob.task_index, ImageJob.created_at)))
         result.update(documents=documents, history=[{'id': doc.id, 'stage': doc.stage, 'version': doc.version, 'confirmed_at': doc.confirmed_at, 'content': json.loads(doc.content), 'created_at': doc.created_at} for doc in docs],
             materials=[material_view(item) for item in session.scalars(select(CreationMaterial).where(CreationMaterial.project_id == row.id).order_by(CreationMaterial.created_at))],
             executions=[{'id': item.id, 'stage': item.stage, 'status': item.status, 'error': item.error, 'output': json.loads(item.output), 'created_at': item.created_at, 'updated_at': item.updated_at} for item in executions],
@@ -551,6 +551,7 @@ PDF 的文字页可读取文本；结构图、表格、扫描页需查看实际�
 事实、建议卖点、待确认问题分开；事实和卖点用文件名、资料 ID、页码标注依据，冲突放入 questions。
 analysis：结合资料提炼 facts、selling_points、questions，不生成图需或图片。
 brief：只依据已确认分析，按目标数量安排 shots，每张提供独立 id、name、objective、selling_point、content、layout、copy、notes、size、reference_ids。
+项目默认：A+ 采用 Premium A+ 桌面端，未明确指定其他模块或手机端时，逐张 size 为 1464x600。首张是有场景、有设计感的产品英雄图，不自动安排白底；只有用户明确要求白底或指定白底上架槽位时才采用白底。用户明确选择的尺寸和风格优先于默认值。
 prompts：严格对照已确认图需逐张编写完整 prompt，shot_id 一致，reference_ids 与图需一致，融入用户补充的风格排版。
 参考图 ID 只能从本任务上传图片中选择；风格参考不能当成产品事实。没有资料支持的参数不要编造。
 技能中的接口配置、模型和参数仅作示例；以网站选择为准。不得执行脚本或声称已安装依赖、配置环境、生成图片。
@@ -594,7 +595,7 @@ def run_planning(store, execution_id, project_id, payload, stage):
 
 def submit_images(store, project_id, execution_id, owner, payload):
     profile = payload['profile']
-    profile.update(prepared_by_agent=True, preserve_prompt=True, creation_project_id=project_id,
+    profile.update(prepared_by_agent=True, preserve_prompt=True, creation_project_id=project_id, creation_execution_id=execution_id,
         source_documents=payload['source_documents'], skill_workflow=payload['skill_snapshot'],
         drawing_experience=payload.get('drawing_experience', {}))
     with Session(store.engine) as session:

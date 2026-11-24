@@ -5,10 +5,23 @@ import { formatImageSize } from './ImageSizePicker';
 import ImageRecordDialog from './ImageRecordDialog';
 import SkillExecutionInfo from './SkillExecutionInfo';
 import { startTaskPolling } from './taskPolling';
+import { imageBatches, type ImageBatch } from './imageBatches.mjs';
 import { formatTaskTime, readTaskResponse, taskCounts, taskLabels, taskPending, type ImageRecord, type ImageTaskDetail } from './imageTaskApi';
 
-export default function TaskResultsPanel({ taskId, active = true, focusJobId }: { taskId: string; active?: boolean; focusJobId?: string }) {
-  const [task, setTask] = useState<ImageTaskDetail>();
+export default function TaskResultsPanel({ taskId, active = true, focusJobId, batches, onChanged }: { taskId: string; active?: boolean; focusJobId?: string; batches?: ImageBatch[]; onChanged?: () => void }) {
+  const [rawTask, setTask] = useState<ImageTaskDetail>();
+  const [batchId, setBatchId] = useState('latest');
+  const [pendingDelete, setPendingDelete] = useState('');
+  const [deletedId, setDeletedId] = useState('');
+  const [removing, setRemoving] = useState(false);
+  const batchList = batches || rawTask?.batches;
+  const groups = batchList && rawTask ? imageBatches(rawTask.items, batchList) : [];
+  const currentBatch = groups.find(group => group.id === batchId) || groups[0];
+  const task = rawTask && currentBatch ? {...rawTask, items: currentBatch.items,
+    model_name:currentBatch.items[0]?.model_name||rawTask.model_name, config_name:currentBatch.items[0]?.config_name||rawTask.config_name,
+    created_at:currentBatch.created_at,
+    counts: currentBatch.items.reduce<Record<string,number>>((counts,item)=>({...counts,[item.status]:(counts[item.status]||0)+1}), {total:currentBatch.items.length}),
+    completed_job_ids: currentBatch.items.filter(item=>item.status==='succeeded').map(item=>item.id)} : rawTask;
   const [error, setError] = useState(''); const [loading, setLoading] = useState(true);
   const [pageVisible, setPageVisible] = useState(() => !document.hidden);
   const [selected, setSelected] = useState<ImageRecord>();
@@ -22,7 +35,7 @@ export default function TaskResultsPanel({ taskId, active = true, focusJobId }: 
     return () => document.removeEventListener('visibilitychange', visibility);
   }, []);
   useEffect(() => {
-    setTask(undefined); setSelected(undefined); setError(''); setHighlight(''); located.current = '';
+    setTask(undefined); setSelected(undefined); setError(''); setHighlight(''); setBatchId('latest'); setPendingDelete(''); setDeletedId(''); located.current = '';
   }, [taskId]);
   useEffect(() => {
     if (!active || !pageVisible) return;
@@ -52,17 +65,44 @@ export default function TaskResultsPanel({ taskId, active = true, focusJobId }: 
     setCancelling(true); setError('');
     try {
       const body = new FormData(); body.set('action', 'cancel');
-      await readTaskResponse(await apiFetch(`/api/image-jobs/tasks/${taskId}/cancel`, { method: 'POST', body, signal: AbortSignal.timeout(12000) }));
+      if(currentBatch) {
+        for(const item of currentBatch.items.filter(item=>item.status==='queued')) {
+          await readTaskResponse(await apiFetch(`/api/image-jobs/${item.id}/cancel`, {method:'POST',body,signal:AbortSignal.timeout(12000)}));
+        }
+      } else {
+        await readTaskResponse(await apiFetch(`/api/image-jobs/tasks/${taskId}/cancel`, { method: 'POST', body, signal: AbortSignal.timeout(12000) }));
+      }
       await poller.current?.refresh();
     } catch (err) { setError(err instanceof Error ? err.message : '取消未完成。'); }
     finally { setCancelling(false); }
   }
+  async function removeImage(item: ImageRecord) {
+    setRemoving(true); setError('');
+    try {
+      await readTaskResponse(await apiFetch(`/api/image-jobs/${item.id}`, {method:'DELETE', signal:AbortSignal.timeout(12000)}));
+      setDeletedId(item.id); setPendingDelete(''); setSelected(undefined);
+      await poller.current?.refresh(); onChanged?.();
+    } catch(err) {setError(err instanceof Error?err.message:'删除失败，请重试。');}
+    finally {setRemoving(false);}
+  }
+  async function restoreImage() {
+    setRemoving(true); setError('');
+    try {
+      const body = new FormData(); body.set('action', 'restore');
+      await readTaskResponse(await apiFetch(`/api/image-jobs/${deletedId}/restore`, {method:'POST', body, signal:AbortSignal.timeout(12000)}));
+      setDeletedId(''); await poller.current?.refresh(); onChanged?.();
+    } catch(err) {setError(err instanceof Error?err.message:'恢复失败，请重试。');}
+    finally {setRemoving(false);}
+  }
   return <section className="task-results-panel" aria-label="任务运行结果">
     <div className="task-result-toolbar"><div><h3>运行结果{task && ` · ${task.counts.total} 张`}</h3>{task && <p>{taskCounts(task)}</p>}</div><div className="task-toolbar-actions">{(task?.counts.queued || 0) > 0 && task?.can_manage !== false && <button type="button" className="button-secondary" disabled={cancelling} onClick={cancel}>{cancelling ? '取消中…' : '取消排队'}</button>}<button type="button" className="button-secondary" disabled={loading} onClick={() => { void poller.current?.refresh(); }}>{loading ? '读取中…' : '刷新进度'}</button></div></div>
     {error && <p className="feedback feedback-error" role="alert">{error}</p>}
+    {deletedId && <p className="feedback" role="status">图片已移入回收状态，原文件保留。<button type="button" className="button-secondary" disabled={removing} onClick={()=>void restoreImage()}>撤销删除</button></p>}
+    {!!groups.length && <div className="image-batch-selector"><label>生成版本<select value={batchId==='latest'?'latest':currentBatch?.id} onChange={event=>{setBatchId(event.target.value);setPendingDelete('');}}><option value="latest">最新版本 · {groups[0].label}</option>{groups.map(group=><option key={group.id} value={group.id}>{group.label} · {formatTaskTime(group.created_at)} · {group.items.length} 张</option>)}</select></label><p>每次提交单独保存为一版，当前仅显示所选版本的图片、提示词和日志。</p></div>}
     {!task && !error && <p role="status">正在读取任务…</p>}
     {task && <>
       <div className="task-run-meta"><time dateTime={task.created_at}>提交于 {formatTaskTime(task.created_at)}</time><span>{task.config_name} · {task.model_name}</span></div>
+      {currentBatch && <p className="image-batch-heading"><strong>{currentBatch.label}</strong> · {formatTaskTime(currentBatch.created_at)}</p>}
       {typeof task.items[0]?.execution_profile?.creation_project_id === 'string' && <div className="guided-actions"><a href={'#/planning?project='+task.items[0].execution_profile.creation_project_id}>查看来源策划方案</a><a href={'#/studio?project='+task.items[0].execution_profile.creation_project_id}>返回方案生图</a></div>}
       {task.agent_run_id && <div className="feedback feedback-warning"><strong>创作任务 · 共 {task.turn_count} 轮 · {taskLabels[task.status] || task.status}</strong>{task.agent_summary && <p>{task.agent_summary}</p>}{task.can_manage !== false && <a href={`#/studio?run=${task.agent_run_id}`}>打开制作对话与执行记录</a>}</div>}
       <details className="task-input-details"><summary>查看本次制作要求</summary>{task.items.map((item, index) => <div key={item.id}><strong>{index + 1}. {item.shot_name || '候选图片'} · {item.execution_profile?.backend ? formatImageSize(item.size) : item.size === "default" ? "自动（未指定尺寸）" : `${item.size.replace("x", " × ")} 像素`}</strong><p className="case-prompt">{item.prompt}</p>{item.reference_url && <a href={item.reference_url} target="_blank" rel="noreferrer">查看参考图</a>}</div>)}</details>
@@ -71,7 +111,9 @@ export default function TaskResultsPanel({ taskId, active = true, focusJobId }: 
         <div className="task-image-caption">{item.execution_result?.native_pixels && <small>原生尺寸 {item.execution_result.native_pixels.join(" × ")} · 图片反馈：{({pending:"待评价",passed:"满意",rework:"需要修改"} as Record<string,string>)[item.execution_result.review?.status || "pending"]}</small>}<strong>{index + 1}. {item.shot_name || '候选图片'}</strong><SkillExecutionInfo item={item} />
           {item.execution_result?.agent_review && <details><summary>{({passed:'自动质检通过',rework:'质检需要修改',uncertain:'待人工审核'})[item.execution_result.agent_review.status]}</summary><p>{item.execution_result.agent_review.summary}</p><ul>{item.execution_result.agent_review.checks.map(check => <li key={check.item}>{check.detail}</li>)}</ul></details>}
           {item.image_url && <span className={`job-status job-${item.status}`}>{taskLabels[item.status]}</span>}{item.image_url && <div className="result-actions"><button type="button" className="button-secondary" onClick={() => setSelected(item)}>图片详情</button><a href={`${item.image_url}?download=true`}>下载</a><a href={task.agent_run_id && task.can_manage !== false ? `#/studio?run=${task.agent_run_id}&source=${item.id}` : `#/edit?source=${item.id}`}>继续修改</a></div>}</div>
+        {item.can_edit !== false && task.can_manage !== false && !['queued','running','unknown'].includes(item.status) && <div className="image-delete-actions">{pendingDelete===item.id?<><span>删除此图片？可撤销，原文件保留。</span><button type="button" className="button-secondary" disabled={removing} onClick={()=>void removeImage(item)}>确认删除</button><button type="button" className="button-secondary" disabled={removing} onClick={()=>setPendingDelete('')}>取消</button></>:<button type="button" className="image-delete-button" disabled={removing} onClick={()=>setPendingDelete(item.id)}>删除图片</button>}</div>}
       </article>)}</div>
+      {!task.items.length&&<p>此版本暂无可显示图片，已删除的图片不会出现在记录中。</p>}
       {task.completed_job_ids.length > 0 && <ExportDownload jobIds={task.completed_job_ids} count={task.completed_job_ids.length} />}
       <section className="task-logs" aria-label="任务运行日志"><h3>运行日志</h3><div className="task-log-list">{task.items.map((item, index) => {
         const diagnostic = item.diagnostic;

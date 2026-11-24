@@ -108,6 +108,7 @@ class ImageJob(OwnedRecord, Base):
     execution_profile: Mapped[str] = mapped_column(Text, default='{}', server_default='{}')
     execution_result: Mapped[str] = mapped_column(Text, default='{}', server_default='{}')
     agent_run_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    deleted_at: Mapped[str | None] = mapped_column(String(40), nullable=True)
 
 
 class ImageConfiguration(Base):

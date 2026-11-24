@@ -1,5 +1,7 @@
 ---
 name: amazon-a-plus
+metadata:
+  version: "0.0.1"
 description: "Plan and generate Amazon A+ Content / Premium A+ module images and independently re-layout desktop artwork for mobile, with consistent campaign style. Supports header, banner, tiles, comparison, 1464×600 desktop and 4:3 mobile layouts with high-resolution exports. Use for A+ content, A+ 页面, 手机端A+, EBC, brand story, enhanced brand content."
 ---
 
@@ -56,7 +58,7 @@ For mobile, 600×450 is a common 4:3 layout reference, not an automatic ceiling 
 Use JPG/PNG and verify the actual module's current pixel and file-size constraints before upload; do not treat this static table or a blanket 2 MB cap as universal. No prices, promos, shipping claims, or competitor references; text in images should also appear in alt text.
 
 ## Step A · Module plan (confirm with user)
-Default 5-module story: ① 970×600 header (brand promise) → ② 3×300×300 key benefits → ③ 970×300 lifestyle banner → ④ 4×220×220 details → ⑤ comparison chart (own range only).
+Default to Premium A+ desktop: each planned image uses 1464×600. Use other module sizes or mobile layouts only when the user explicitly chooses them. Default story: brand promise → key benefits → lifestyle scene → details → comparison (own range only), with the requested image count taking precedence. The first image is an immersive scene hero, not automatically a white-background listing main image. Explicit white-background slot requirements take precedence when selected.
 
 ## Step B · Campaign style lock (paste into every module prompt)
 ```text
