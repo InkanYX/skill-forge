@@ -896,6 +896,11 @@ summary { cursor: pointer; color: #3e577c; }
 .pending-material-uploading { background:#f7faff; border-radius:8px; }
 .pending-hint { margin:6px 0 0; color:#607089; font-size:12.5px; line-height:1.7; }
 .material-upload-block { margin-bottom:16px; }
+.file-drop-zone { display:flex; align-items:center; gap:16px; padding:24px 20px; margin-top:10px; border:1.5px dashed #a9bbd4; border-radius:10px; background:#f8faff; color:#42618d; transition:border-color .15s,background .15s; }
+.file-drop-zone.is-dragging { border-color:#285ac8; background:#eaf1ff; outline:3px solid #d6e4ff; }
+.file-drop-copy { flex:1; min-width:0; display:grid; gap:5px; }.file-drop-copy strong { color:#243e63; font-size:14px; }.file-drop-copy small { color:#63758e; font-size:12px; line-height:1.6; }
+.file-drop-zone.is-disabled { opacity:.6; }.file-drop-zone > svg { flex:none; }
+@media(max-width:600px){.file-drop-zone { flex-wrap:wrap; padding:18px 14px; gap:12px; }.file-drop-zone > button { margin-left:40px; }}
 .material-upload-title { display:block; color:#34455b; font-weight:600; font-size:13px; margin-bottom:8px; }
 .material-uploader { display:flex; align-items:stretch; border:1px solid #d4deea; border-radius:10px; background:#fff; overflow:hidden; }
 .guided-card .material-uploader > select,
