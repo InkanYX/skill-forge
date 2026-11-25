@@ -9,6 +9,7 @@ import ImageRevision from './ImageRevision';
 import SkillLibrary from './SkillLibrary';
 import Workspace from './Workspace';
 import WorkflowCases from './WorkflowCases';
+import ExperienceLibrary from './ExperienceLibrary';
 import { CreationSkillProvider } from './CreationSkillContext';
 
 const pages = [
@@ -18,6 +19,7 @@ const pages = [
   { id: 'studio', href: '#/studio', title: '图片创作' },
   { id: 'library', href: '#/library', title: '生成记录' },
   { id: 'showcases', href: '#/showcases', title: '完整案例' },
+  { id: 'learning', href: '#/learning', title: '作图经验' },
   { id: 'skills', href: '#/skills', title: '技能库' },
   { id: 'members', href: '#/members', title: '成员管理' },
   { id: 'settings', href: '#/settings', title: '个人模型配置' },
@@ -45,6 +47,7 @@ function currentPage() {
   if (hash === '#/products') return 'products';
   if (hash === '#/library') return 'library';
   if (hash === '#/showcases') return 'showcases';
+  if (hash === '#/learning') return 'learning';
   if (hash === '#/edit') return 'edit';
   if (hash === '#/skills') return 'skills';
   return hash === '#/studio' || hash === '#image-studio-heading' ? 'studio'
@@ -88,6 +91,7 @@ function WorkspaceApp() {
           {page === 'products' && <CreationSkillProvider key={route}><ProductAnalysisPage route={route} /></CreationSkillProvider>}
           {page === 'library' && <ArtworkLibrary key={route} />}
           {page === 'showcases' && <WorkflowCases key={route} route={route} />}
+          {page === 'learning' && <ExperienceLibrary />}
           {page === 'edit' && <CreationSkillProvider key={route}><ImageRevision /></CreationSkillProvider>}
           {page === 'skills' && <SkillLibrary />}
           {page === 'workspace' && <Workspace />}

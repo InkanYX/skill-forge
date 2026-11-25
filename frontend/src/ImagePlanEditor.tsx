@@ -7,6 +7,8 @@ import { useCreationProject, uploadProjectMaterials, useUnsavedChanges } from '.
 import { ProjectFeedback, ProjectMaterials, ProjectLog, ProjectHistory } from './ProjectParts';
 import VisualStylePicker, { defaultVisualStyle } from './VisualStylePicker';
 import type { VisualStyle } from './creationProjectApi';
+import LearningControls, {defaultLearning} from './LearningControls';
+import type { LearningSettings } from './creationProjectApi';
 
 const shotFields:{key:keyof Pick<Shot,'name'|'objective'|'selling_point'|'content'|'layout'|'copy'|'notes'>;label:string}[]=[
   {key:'name',label:'图片用途'},{key:'objective',label:'展示目标'},{key:'selling_point',label:'对应卖点'},{key:'content',label:'画面内容'},
@@ -18,6 +20,7 @@ export default function ImagePlanEditor({route,id}:{route:string;id?:string}){
   const [name,setName]=useState('');const [source,setSource]=useState(params.get('product')||'');const [template,setTemplate]=useState(params.get('template')||'');
   const [goal,setGoal]=useState('');const [style,setStyle]=useState('');const [count,setCount]=useState(4);const [planner,setPlanner]=useState('');
   const [visualStyle,setVisualStyle]=useState<VisualStyle|null>(id?null:defaultVisualStyle);
+  const [learning,setLearning]=useState<LearningSettings>(defaultLearning);
   const [market,setMarket]=useState('');const [language,setLanguage]=useState('');const [audience,setAudience]=useState('');const [selling,setSelling]=useState('');
   const [stage,setStage]=useState<'brief'|'prompts'>('brief');const [draft,setDraft]=useState<DocumentContent>({});const [dirty,setDirty]=useState(false);
   const [instruction,setInstruction]=useState('');const [busy,setBusy]=useState(false);const [error,setError]=useState('');
@@ -26,20 +29,21 @@ export default function ImagePlanEditor({route,id}:{route:string;id?:string}){
   useEffect(()=>{if(project){const s=project.settings;setName(project.title);setGoal(s.goal);setStyle(s.style);setCount(s.image_count);setPlanner(s.planning_model);setMarket(s.market||'');setLanguage(s.language||'');setAudience(s.audience||'');setSelling(s.selected_selling_points||'');}},[project?.id,project?.revision]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(()=>{if(project)setStage(project.documents.brief?.confirmed_at?'prompts':'brief');},[project?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(()=>{if(project)setVisualStyle(project.settings.visual_style||null);},[project?.id,project?.revision]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(()=>{if(project)setLearning(project.settings.learning||defaultLearning);},[project?.id,project?.revision]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(()=>{setDraft(structuredClone(doc?.content||{}));setDirty(false);},[doc?.id,stage]);
-  const settingsDirty=!!project&&(name!==project.title||goal!==project.settings.goal||style!==project.settings.style||JSON.stringify(visualStyle)!==JSON.stringify(project.settings.visual_style||null)||count!==project.settings.image_count||market!==(project.settings.market||'')||language!==(project.settings.language||'')||audience!==(project.settings.audience||'')||selling!==(project.settings.selected_selling_points||''));
+  const settingsDirty=!!project&&(name!==project.title||goal!==project.settings.goal||style!==project.settings.style||JSON.stringify(learning)!==JSON.stringify(project.settings.learning||defaultLearning)||JSON.stringify(visualStyle)!==JSON.stringify(project.settings.visual_style||null)||count!==project.settings.image_count||market!==(project.settings.market||'')||language!==(project.settings.language||'')||audience!==(project.settings.audience||'')||selling!==(project.settings.selected_selling_points||''));
   useUnsavedChanges(dirty||settingsDirty||(!id&&!!name));const locked=busy||state.locked;
   const ready=stage==='brief'?!!project?.documents.analysis?.confirmed_at:!!project?.documents.brief?.confirmed_at;
-  const visualFields=<><VisualStylePicker value={visualStyle} onChange={setVisualStyle} snapshot={project?.visual_style_snapshot}/><label>补充风格与排版要求<textarea rows={3} maxLength={8000} value={style} onChange={e=>setStyle(e.target.value)} placeholder="可描述场景、排版和字体偏好，或在下方上传风格参考图。"/></label></>;
+  const visualFields=<><VisualStylePicker value={visualStyle} onChange={setVisualStyle} snapshot={project?.visual_style_snapshot}/><label>补充风格与排版要求<textarea rows={3} maxLength={8000} value={style} onChange={e=>setStyle(e.target.value)} placeholder="可描述场景、排版和字体偏好，或在下方上传风格参考图。"/></label><LearningControls value={learning} onChange={setLearning} project={project}/></>;
   const targetFields=<><div className="guided-form-grid"><label>方案名称<input value={name} maxLength={120} onChange={e=>setName(e.target.value)}/></label><label>图片数量<select value={count} onChange={e=>setCount(Number(e.target.value))}>{Array.from({length:16},(_,i)=><option key={i+1}>{i+1}</option>)}</select></label><label>站点 / 渠道<input value={market} maxLength={120} onChange={e=>setMarket(e.target.value)} placeholder="例如：Amazon 美国站 Listing"/></label><label>文案语言<input value={language} maxLength={80} onChange={e=>setLanguage(e.target.value)}/></label><label>目标受众<input value={audience} maxLength={500} onChange={e=>setAudience(e.target.value)}/></label></div><label>本次制作目标<textarea rows={3} maxLength={12000} value={goal} onChange={e=>setGoal(e.target.value)}/></label><label>本次重点卖点<textarea rows={3} maxLength={8000} value={selling} onChange={e=>setSelling(e.target.value)} placeholder="从候选卖点中选择重点，也可让 AI 结合本次目标建议。"/></label>{!id&&visualFields}</>;
   async function create(){
     setBusy(true);setError('');try{const form=new FormData();skill.append(form);const value=await projectRequest<Project>('','POST',{
-      title:name,kind:'plan',source_product_id:source,template_id:template||null,goal,style,visual_style:visualStyle,image_count:count,planning_model:planner,
+      title:name,kind:'plan',source_product_id:source,template_id:template||null,goal,style,learning,visual_style:visualStyle,image_count:count,planning_model:planner,
       skill:JSON.parse(String(form.get('skill'))),market,language,audience,selected_selling_points:selling,
     });window.location.hash='#/planning?project='+value.id;}catch(err){setError(err instanceof Error?err.message:'建立方案失败');}finally{setBusy(false);}
   }
   async function saveSettings(){if(!project)return;const saved=await state.mutate(()=>projectRequest<Project>('/'+project.id,'PUT',{
-    ...project.settings,title:name,goal,style,visual_style:visualStyle,image_count:count,market,language,audience,selected_selling_points:selling,skill:project.skill,revision:project.revision,
+    ...project.settings,title:name,goal,style,learning,visual_style:visualStyle,image_count:count,market,language,audience,selected_selling_points:selling,skill:project.skill,revision:project.revision,
   }),'制作要求已保存；风格修改后请重新确认图需和提示词。');if(saved&&!saved.documents.brief)setStage('brief');}
   function editDraft(value:DocumentContent){setDraft(value);setDirty(true);}
   function editShot(index:number,changes:Partial<Shot>){editDraft({...draft,shots:draft.shots?.map((shot,i)=>i===index?{...shot,...changes}:shot)});}

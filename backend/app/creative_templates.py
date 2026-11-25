@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.database import CreativeTemplate, CreativeCase, ImageJob, CreationProject
 from app.skills import resolve_skill
 from app.image_sizes import ImageSize
+from app.learning_feedback import LearningFeedback, freeze_learning, read_learning, comparison_candidates
 
 VARIABLE = re.compile(r"\{\{\s*([^{}\n]{1,40}?)\s*\}\}")
 
@@ -42,7 +43,8 @@ class CaseInput(BaseModel):
     title: str = Field(min_length=1, max_length=120)
     experience: str = Field(default='', max_length=4000)
     issues: str = Field(default="", max_length=4000)
-    outcome: Literal['pending', 'satisfied', 'rework'] = 'pending'
+    outcome: Literal['pending', 'satisfied', 'rework', 'discarded'] = 'pending'
+    learning: LearningFeedback | None = None
     requested_change: str = Field(default='', max_length=4000)
     product_id: UUID | None = None
     revision: int | None = Field(default=None, ge=0)
@@ -56,7 +58,7 @@ class CaseInput(BaseModel):
 
     @model_validator(mode='after')
     def meaningful(self):
-        if not any(value.strip() for value in (self.experience, self.issues, self.requested_change)):
+        if not any(value.strip() for value in (self.experience, self.issues, self.requested_change)) and not (self.learning and (self.learning.reason.strip() or any(self.learning.ratings.model_dump().values()))):
             raise ValueError('请至少填写一项有效做法、问题或修改要求。')
         return self
 
@@ -155,6 +157,7 @@ def build_creative_router(engine):
                 'outcome': row.outcome if row.outcome != 'pending' else {'passed': 'satisfied', 'rework': 'rework'}.get(review.get('status'), 'pending'),
                 'requested_change': row.requested_change, 'product_id': product_id, 'product_name': product.title if product else '',
                 'product_locked': bool(job_product(session, job)),
+                'learning': read_learning(job), 'comparison_candidates': comparison_candidates(session, job, product_id),
                 'revision': row.revision, 'updated_at': row.updated_at, "image_url": f"/api/image-jobs/{row.job_id}/image", "prompt": job.prompt, "model_name": job.model_name, "product_snapshot": json.loads(job.product_snapshot), "template_snapshot": json.loads(job.template_snapshot)}
 
     @router.get('/cases')
@@ -191,7 +194,9 @@ def build_creative_router(engine):
             row.title, row.experience, row.issues, row.updated_at = data.title, data.experience, data.issues, timestamp()
             row.outcome, row.requested_change, row.product_id = data.outcome, data.requested_change, product_id
             result = json.loads(job.execution_result or '{}')
-            result['review'] = {'status': {'pending': 'pending', 'satisfied': 'passed', 'rework': 'rework'}[data.outcome],
+            if data.learning is not None:
+                result['human_feedback'] = freeze_learning(session, job, product_id, data.learning)
+            result['review'] = {'status': {'pending': 'pending', 'satisfied': 'passed', 'rework': 'rework', 'discarded': 'rework'}[data.outcome],
                                 'notes': '\n'.join(filter(None, [data.issues, data.requested_change])), 'updated_at': row.updated_at}
             job.execution_result = json.dumps(result, ensure_ascii=False)
             session.flush()
@@ -211,7 +216,7 @@ def build_creative_router(engine):
             product_id = job_product(session, job)
             product = session.get(CreationProject, product_id) if product_id else None
             review = json.loads(job.execution_result or '{}').get('review', {})
-            return {**owner_view(job), 'id': '', 'job_id': job.id, 'title': '', 'experience': '',
+            return {**owner_view(job), 'learning': read_learning(job), 'comparison_candidates': comparison_candidates(session, job, product_id), 'id': '', 'job_id': job.id, 'title': '', 'experience': '',
                     'issues': review.get('notes', ''), 'requested_change': '', 'revision': 0,
                     'outcome': {'passed': 'satisfied', 'rework': 'rework'}.get(review.get('status'), 'pending'),
                     'product_id': product_id, 'product_name': product.title if product else '', 'product_locked': bool(product_id)}

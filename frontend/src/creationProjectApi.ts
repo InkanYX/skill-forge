@@ -9,6 +9,7 @@ export interface Shot { id: string; name: string; objective: string; selling_poi
 export interface Prompt { shot_id: string; prompt: string; reference_ids: string[] }
 export interface VisualStyle { preset: string; variation: 'steady'|'balanced'|'rich'; density: 'low'|'medium'|'high'; palette: string }
 export interface VisualStyleSnapshot {version:string;selection:VisualStyle;name:string;rules:string;checks:string[]}
+export interface LearningSettings {enabled:boolean;category:string;image_type:'any'|'listing'|'a_plus'|'detail';device:'any'|'desktop'|'mobile';excluded_ids:string[]}
 export interface DocumentContent { facts?: string; selling_points?: string; questions?: string; art_direction?: string; shots?: Shot[]; prompts?: Prompt[] }
 export interface ProjectDocument { id: string; version: number; content: DocumentContent; confirmed_at: string | null }
 export interface Project {
@@ -21,7 +22,7 @@ export interface Project {
   mobile_source?: {project_id:string; batch_id:string; job_ids:string[]} | null;
   case_reference?: {id:string;title:string;guidance:string;style:string} | null;
   source?: { product_id: string; title: string; document_id: string; version: number }; source_updated?: boolean;
-  settings: { goal: string; style: string; visual_style?:VisualStyle|null; image_count: number; planning_model: string; image_model: string; market: string; language: string; audience: string; selected_selling_points: string; sku?: string };
+  settings: { goal: string; style: string; visual_style?:VisualStyle|null; learning?:LearningSettings; image_count: number; planning_model: string; image_model: string; market: string; language: string; audience: string; selected_selling_points: string; sku?: string };
   skill: Record<string, unknown>; documents: Record<Stage, ProjectDocument | null>;
   materials: Material[]; images: ImageRecord[];
   messages: { role: string; stage: string; content: string; created_at: string }[];

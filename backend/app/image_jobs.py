@@ -349,7 +349,7 @@ def create_jobs(engine, directory, config_id, model_name, prompt, size, request_
                     parent = session.get(CreationProject, product_id)
                     if not parent or parent.kind != 'product': raise HTTPException(422, '关联产品不存在。')
                     profile['experience_product_id'] = product_id
-                    profile['drawing_experience'] = {'direct': matching_experience(session, product_id, {'purpose': prompt + '\n' + row.shot_name})}
+                    profile['drawing_experience'] = {'direct': matching_experience(session, product_id, {'purpose': prompt + '\n' + row.shot_name}, owner_id=owner_id)}
                 row.execution_profile = json.dumps(profile, ensure_ascii=False)
             rows.append(row)
         try:

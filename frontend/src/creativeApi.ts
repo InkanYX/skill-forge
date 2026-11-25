@@ -7,11 +7,13 @@ export interface CreativeTemplate {
 }
 export interface CreativeSkill { owner_id?: string | null; can_edit?: boolean; id: string; name: string; purpose: string; content: string; revision: number; updated_at: string }
 export interface TemplateSnapshot extends Partial<CreativeTemplate> { values?: Record<string, string>; extra?: string }
+export interface LearningFeedback {ratings?:Partial<Record<'fidelity'|'composition'|'typography'|'scene'|'style',number|null>>;reference_job_id?:string|null;preference?:'unrated'|'current'|'reference'|'tie';reason?:string;comparison?:{prompt_diff:string;reference_prompt:string;current_prompt:string;rating_delta?:Record<string,number>}}
 import type { ProductSnapshot } from './productApi';
 export interface CreativeCase {
   can_edit?: boolean; owner_id?: string | null;
   id: string; job_id: string; title: string; experience: string; issues: string;
-  outcome: 'pending' | 'satisfied' | 'rework'; requested_change: string; revision: number;
+  outcome: 'pending' | 'satisfied' | 'rework' | 'discarded'; requested_change: string; revision: number;
+  learning?:LearningFeedback;comparison_candidates?:{id:string;name:string;created_at:string;preview_url:string}[];
   product_id?: string | null; product_name?: string; product_locked?: boolean; updated_at?: string;
   image_url: string; prompt: string; model_name: string; template_snapshot: TemplateSnapshot; product_snapshot?: ProductSnapshot;
 }

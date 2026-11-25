@@ -22,6 +22,7 @@ from app.image_jobs import now, create_jobs, view as job_view, artifact
 from app.image_provider import GenerationError, MAX_IMAGE
 from app.image_sizes import ImageSize
 from app.visual_styles import VisualStyle, PRESETS, STYLE_VERSION, snapshot_style, layout_warnings
+from app.learning_feedback import LearningSettings
 
 STAGES = ('analysis', 'brief', 'prompts')
 LOCK = RLock()
@@ -32,6 +33,7 @@ class ProjectInput(BaseModel):
     goal: str = Field(default='', max_length=12000)
     style: str = Field(default='', max_length=8000)
     visual_style: VisualStyle | None = None
+    learning: LearningSettings = Field(default_factory=LearningSettings)
     image_count: int = Field(default=4, ge=1, le=16)
     planning_model: str = Field(default='', max_length=200)
     sku: str = Field(default='', max_length=100)
@@ -247,6 +249,7 @@ def project_view(session, row, detail=True):
     result['mobile_source'] = data.get('mobile_source')
     result['case_reference'] = data.get('case_reference')
     result['settings']['visual_style'] = data.get('visual_style')
+    result['settings']['learning'] = data.get('learning') or LearningSettings().model_dump(mode='json')
     result['visual_style_snapshot'] = data.get('visual_style_snapshot')
     result['layout_warnings'] = layout_warnings(documents['brief']['content']['shots']) if documents['brief'] else []
     if row.source_product_id:
@@ -403,6 +406,8 @@ def build_creation_router(store):
             if value.goal != data['goal'] or value.image_count != data['image_count']: invalidate(data, 'analysis' if value.goal != data['goal'] and row.kind != 'plan' else 'brief')
             elif value.style != data['style']: invalidate(data, 'brief')
             selected_style = value.visual_style.model_dump() if value.visual_style else None
+            if value.learning.model_dump(mode='json') != (data.get('learning') or LearningSettings().model_dump(mode='json')):
+                invalidate(data, 'brief')
             if selected_style != data.get('visual_style'):
                 invalidate(data, 'brief')
                 data['visual_style_snapshot'] = snapshot_style(selected_style)
@@ -413,6 +418,15 @@ def build_creation_router(store):
             if row.kind == 'product': data['skill'] = value.skill
             touch(row, data); session.flush()
             return project_view(session, row)
+
+    @router.get('/{identifier}/experience-preview')
+    def experience_preview(identifier: UUID, request: Request):
+        from app.product_experience import matching_experience
+        require_db()
+        with Session(store.engine) as session:
+            row,data=load_project(session,identifier,request.state.image_owner)
+            context={**data,'purpose':row.title+'\n'+data.get('goal','')}
+            return {'experiences':matching_experience(session,row.source_product_id,context,request.state.image_owner,include_excluded=True)}
 
     @router.post('/{identifier}/materials', status_code=201)
     def upload(request: Request, identifier: UUID, revision: Annotated[int, Form()], material_id: Annotated[UUID, Form()], kind: Annotated[str, Form()], file: Annotated[UploadFile, File()]):
@@ -541,7 +555,7 @@ def build_creation_router(store):
             from app.product_experience import matching_experience
             if row.source_product_id and stage in ('brief', 'prompts'):
                 context = {**data, 'purpose': row.title + '\n' + data.get('goal', '')}
-                data.setdefault('drawing_experience', {})[stage] = matching_experience(session, row.source_product_id, context)
+                data.setdefault('drawing_experience', {})[stage] = matching_experience(session, row.source_product_id, context, request.state.image_owner)
             payload['drawing_experience'] = data.get('drawing_experience', {})
             if stage == 'images':
                 ids = value.shot_ids
@@ -584,6 +598,7 @@ def run_planning(store, execution_id, project_id, payload, stage):
     from app.agent_runtime import _chat
     from app.skill_agent import plan_with_skills
     directory = store.directory / 'creation-projects' / project_id / 'executions' / execution_id
+    directory.mkdir(parents=True, exist_ok=True)
     reads = []
     tools = material_tools(store.directory, project_id, payload['materials'], reads)
     profile = payload['profile']

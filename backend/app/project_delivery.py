@@ -137,6 +137,7 @@ def build_delivery_router(store):
             target_data = json.loads(json.dumps(data))
             target_data['visual_style_snapshot'] = original.get('visual_style')
             target_data['visual_style'] = (original.get('visual_style') or {}).get('selection')
+            target_data['learning'] = {**(data.get('learning') or {}),'device':'mobile','image_type':'a_plus'}
             target_data.update(active={},messages=[],batches=[],mobile_source={'project_id':source.id,
                 'batch_id':str(value.batch_id),'job_ids':[j.id for j in jobs]}, image_count=len(jobs),
                 image_model=model, stage='images',goal=data.get('goal','')+'\n手机版A+：4:3独立重排，保留桌面版本。')
@@ -259,7 +260,9 @@ def build_delivery_router(store):
                     for path in raw.rglob('*'):
                         if path.is_file(): copy_file(path,f'skills/{skill["version_id"]}/'+path.relative_to(raw).as_posix())
                 feedback=list(session.scalars(select(CreativeCase).where(CreativeCase.job_id.in_([j.id for j in jobs]))))
-                snapshot['feedback']=[{k:getattr(f,k) for k in ('job_id','title','experience','issues','requested_change','outcome','revision')} for f in feedback]
+                from app.learning_feedback import read_learning
+                snapshot['feedback']=[{**{k:getattr(f,k) for k in ('job_id','title','experience','issues','requested_change','outcome','revision')},
+                    'learning':read_learning(next(job for job in jobs if job.id==f.job_id))} for f in feedback]
                 (root/'snapshot.json').write_text(json.dumps(snapshot,ensure_ascii=False,indent=2),encoding='utf-8')
                 row=WorkflowCase(id=identifier,project_id=project.id,owner_id=request.state.image_owner,title=value.title,
                     summary=value.summary,content=json.dumps(snapshot,ensure_ascii=False),request_id=str(value.request_id),created_at=now())

@@ -1022,3 +1022,7 @@ button.product-step:hover { border-color:#c5d8f1; background:#f7faff; color:#245
 .style-sketch-informative i { left:8%; width:29%; }.style-sketch-informative b { left:49%; width:30%; top:25%; }.style-sketch-informative em { left:49%; top:45%; width:34%; box-shadow:0 12px #9aafb5,0 24px #9aafb5; }.style-sketch-informative>span { display:none; }
 fieldset:disabled .visual-style-choice { cursor:default; opacity:.65; }
 @media(max-width:600px){.visual-style-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }.style-sketch {height:72px;} }
+.learning-feedback-fields,.learning-controls { margin:20px 0; padding:18px; border:1px solid #d8e3e4; border-radius:8px; background:#f7faf9; }
+.learning-feedback-fields p,.learning-controls p { color:#61727b; font-size:12px; line-height:1.8; }
+.learning-feedback-fields select,.learning-controls select { max-width:100%; }
+.learning-match { padding:14px 0; border-top:1px solid #d8e3e4; }.learning-match small { display:block; margin-bottom:8px; }
