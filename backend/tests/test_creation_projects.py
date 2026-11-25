@@ -131,7 +131,8 @@ def test_upstream_changes_invalidate_only_affected_documents_and_keep_history(pr
     assert updated.status_code == 200, updated.text
     project = updated.json()
     assert project['documents']['analysis']['id'] == old_ids['analysis']
-    assert project['documents']['brief']['id'] == old_ids['brief']
+    assert project['documents']['brief'] is None
+    assert any(row['id'] == old_ids['brief'] for row in project['history'])
     assert project['documents']['prompts'] is None
     assert any(row['id'] == old_ids['prompts'] for row in project['history'])
     project = edit(client, project, 'analysis', {'facts': '修正立柱数量', 'selling_points': '已调整', 'questions': ''})

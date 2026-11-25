@@ -135,6 +135,8 @@ def build_delivery_router(store):
             session.add(target)
             mapping = clone_materials(session,store.directory,source.id,target_id)
             target_data = json.loads(json.dumps(data))
+            target_data['visual_style_snapshot'] = original.get('visual_style')
+            target_data['visual_style'] = (original.get('visual_style') or {}).get('selection')
             target_data.update(active={},messages=[],batches=[],mobile_source={'project_id':source.id,
                 'batch_id':str(value.batch_id),'job_ids':[j.id for j in jobs]}, image_count=len(jobs),
                 image_model=model, stage='images',goal=data.get('goal','')+'\n手机版A+：4:3独立重排，保留桌面版本。')
@@ -151,10 +153,12 @@ def build_delivery_router(store):
                 identity_refs = [mapping[r] for r in prompt_items[shot_id]['reference_ids']]
                 if len(identity_refs)>7: raise HTTPException(422,'单张参考图超过8张，请先缩减桌面方案参考范围。')
                 shot.update(size='1200x900',reference_ids=[ref_id,*identity_refs],
-                    layout='手机端4:3独立重排；大主体、清晰文案、保留场景纵深；不裁切桌面横幅。',
+                    layout='手机端4:3独立重排；大主体、清晰文案、保留场景纵深；不裁切桌面横幅。原图编排意图：'+shot.get('layout',''),
                     notes='基于桌面图片 '+job.id+'，桌面图作编辑目标及风格参考，实拍作商品身份依据。')
                 new_shots.append(shot)
-                new_prompts.append({'shot_id':shot_id,'prompt':mobile_prompt(shot),'reference_ids':shot['reference_ids']})
+                style_rules = (target_data.get('visual_style_snapshot') or {}).get('rules','')
+                new_prompts.append({'shot_id':shot_id,'prompt':mobile_prompt(shot)+'\nMobile layout intent: '+shot['layout']
+                    + ('\nConfirmed campaign direction (adapt layout for mobile): '+style_rules if style_rules else ''),'reference_ids':shot['reference_ids']})
             analysis = session.get(CreationDocument,docs.get('analysis',''))
             previous = {'brief':{'shots':new_shots},'prompts':{'prompts':new_prompts}}
             if analysis: previous['analysis'] = json.loads(analysis.content)
@@ -171,6 +175,7 @@ def build_delivery_router(store):
                 'skill_snapshot':original.get('skill_workflow') or data['skill_snapshot'], 'profile':profile,
                 'previous':previous,'source_documents':dict(target_data['active']), 'materials':materials,
                 'shot_ids':shot_ids,'drawing_experience':data.get('drawing_experience',{})}
+            payload['settings']['visual_style'] = target_data.get('visual_style_snapshot')
             session.add(CreationExecution(id=str(value.request_id),project_id=target_id,stage='images',status='queued',
                 input=json.dumps(payload,ensure_ascii=False),output='{}',error='',created_at=now(),updated_at=now()))
             session.flush()
@@ -359,11 +364,12 @@ def build_delivery_router(store):
                 reference.setdefault('style_material_ids',[]).append(identifier)
             data=ProjectInput(title=value.title,kind='plan',source_product_id=UUID(source.id),
                 goal='参考案例的视觉和编排方法，为当前产品重新策划；只使用当前产品已确认事实。',
-                style=settings.get('style',''),image_count=settings.get('image_count',4),planning_model=planner,
+                style=settings.get('style',''),visual_style=settings.get('visual_style'),image_count=settings.get('image_count',4),planning_model=planner,
                 image_model=current.get('image_model_name','')).model_dump(mode='json',exclude={'title','revision'})
             data.update(active={},messages=[],batches=[],stage='brief',case_reference=reference,
                 source={'product_id':source.id,'title':source.title,'document_id':analysis.id,'version':analysis.version,'materials':mapping},
                 skill_snapshot=snapshot_for(store.engine,store.directory,request.state.image_owner,data['goal'],data['skill']))
+            data['visual_style_snapshot'] = snapshot.get('visual_style_snapshot')
             text=analysis.content
             for old,new in mapping.items(): text=text.replace(old,new)
             doc=save_document(session,target,data,'analysis',json.loads(text)); doc.confirmed_at=now()

@@ -173,8 +173,11 @@ def review(store, owner, directory: Path, requirements: str, prompt: str, refere
         return pending
     try:
         image = (directory / 'preview.jpg') if (directory / 'preview.jpg').is_file() else directory / 'result.png'
+        direction = profile.get('visual_style') if profile else None
+        style_review = ('\n本次确认的视觉规范：' + json.dumps(direction, ensure_ascii=False)
+            + '\n逐项检查风格、构图、文字密度与可读性；单图不能证明整套构图有变化，标记该项需整套人工检查。') if direction else ''
         raw = _vision(url, key, model, image.read_bytes(), REVIEW_INSTRUCTIONS
-                      + '\n用户制作要求：' + requirements + '\n实际提示词：' + prompt, reference=reference,
+                      + '\n用户制作要求：' + requirements + '\n实际提示词：' + prompt + style_review, reference=reference,
                       parameters=profile.get('review_parameters', {}) if profile else store.parameters(owner, 'vision'))
         result = {**parse_review(raw), 'method': 'vision', 'model': model,
                   'compared_reference': reference is not None}

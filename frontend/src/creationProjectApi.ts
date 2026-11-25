@@ -7,17 +7,21 @@ export const stageNames: Record<Stage | 'materials' | 'images', string> = { mate
 export interface Material { id: string; name: string; kind: string; media_type: string; pages: number; size: number }
 export interface Shot { id: string; name: string; objective: string; selling_point: string; content: string; layout: string; copy: string; notes: string; size: string; reference_ids: string[] }
 export interface Prompt { shot_id: string; prompt: string; reference_ids: string[] }
-export interface DocumentContent { facts?: string; selling_points?: string; questions?: string; shots?: Shot[]; prompts?: Prompt[] }
+export interface VisualStyle { preset: string; variation: 'steady'|'balanced'|'rich'; density: 'low'|'medium'|'high'; palette: string }
+export interface VisualStyleSnapshot {version:string;selection:VisualStyle;name:string;rules:string;checks:string[]}
+export interface DocumentContent { facts?: string; selling_points?: string; questions?: string; art_direction?: string; shots?: Shot[]; prompts?: Prompt[] }
 export interface ProjectDocument { id: string; version: number; content: DocumentContent; confirmed_at: string | null }
 export interface Project {
   id: string; title: string; revision: number; stage: Stage | 'images'; busy: boolean; created_at: string; updated_at: string;
   kind: 'product' | 'plan' | 'legacy'; source_product_id: string | null; analysis_confirmed: boolean; can_edit: boolean;
   legacy_product_id?: string | null;
   drawing_experience?: Record<string, DrawingExperience[]>;
+  visual_style_snapshot?: VisualStyleSnapshot|null;
+  layout_warnings?: string[];
   mobile_source?: {project_id:string; batch_id:string; job_ids:string[]} | null;
   case_reference?: {id:string;title:string;guidance:string;style:string} | null;
   source?: { product_id: string; title: string; document_id: string; version: number }; source_updated?: boolean;
-  settings: { goal: string; style: string; image_count: number; planning_model: string; image_model: string; market: string; language: string; audience: string; selected_selling_points: string; sku?: string };
+  settings: { goal: string; style: string; visual_style?:VisualStyle|null; image_count: number; planning_model: string; image_model: string; market: string; language: string; audience: string; selected_selling_points: string; sku?: string };
   skill: Record<string, unknown>; documents: Record<Stage, ProjectDocument | null>;
   materials: Material[]; images: ImageRecord[];
   messages: { role: string; stage: string; content: string; created_at: string }[];

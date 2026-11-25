@@ -21,6 +21,7 @@ from app.creation_skills import snapshot_for
 from app.image_jobs import now, create_jobs, view as job_view, artifact
 from app.image_provider import GenerationError, MAX_IMAGE
 from app.image_sizes import ImageSize
+from app.visual_styles import VisualStyle, PRESETS, STYLE_VERSION, snapshot_style, layout_warnings
 
 STAGES = ('analysis', 'brief', 'prompts')
 LOCK = RLock()
@@ -30,6 +31,7 @@ class ProjectInput(BaseModel):
     title: str = Field(min_length=1, max_length=120)
     goal: str = Field(default='', max_length=12000)
     style: str = Field(default='', max_length=8000)
+    visual_style: VisualStyle | None = None
     image_count: int = Field(default=4, ge=1, le=16)
     planning_model: str = Field(default='', max_length=200)
     sku: str = Field(default='', max_length=100)
@@ -89,6 +91,7 @@ class Shot(BaseModel):
 
 
 class Brief(BaseModel):
+    art_direction: str = Field(default='', max_length=5000)
     shots: list[Shot] = Field(min_length=1, max_length=16)
 
 
@@ -243,6 +246,9 @@ def project_view(session, row, detail=True):
     result['drawing_experience'] = data.get('drawing_experience', {})
     result['mobile_source'] = data.get('mobile_source')
     result['case_reference'] = data.get('case_reference')
+    result['settings']['visual_style'] = data.get('visual_style')
+    result['visual_style_snapshot'] = data.get('visual_style_snapshot')
+    result['layout_warnings'] = layout_warnings(documents['brief']['content']['shots']) if documents['brief'] else []
     if row.source_product_id:
         source = session.get(CreationProject, row.source_product_id)
         latest = json.loads(source.content).get('active', {}).get('analysis') if source else None
@@ -288,6 +294,10 @@ def build_creation_router(store):
             if kind: query = query.where(CreationProject.kind == kind)
             rows = [project_view(session, row, False) for row in session.scalars(query.order_by(CreationProject.updated_at.desc()).limit(100))]
             return [row for row in rows if not ready or row['analysis_confirmed']] if kind == 'product' else rows
+
+    @router.get('/visual-styles')
+    def visual_styles():
+        return {'version': STYLE_VERSION, 'presets': PRESETS}
 
     @router.get('/templates')
     def templates():
@@ -344,6 +354,7 @@ def build_creation_router(store):
         skill = snapshot_for(store.engine, store.directory, request.state.image_owner, value.goal, value.skill) if value.planning_model else None
         with LOCK, Session(store.engine) as session, session.begin():
             data = {**value.model_dump(mode='json', exclude={'title', 'revision'}), 'skill_snapshot': skill, 'active': {}, 'messages': [], 'batches': [], 'stage': 'analysis'}
+            data['visual_style_snapshot'] = snapshot_style(data.get('visual_style'))
             row = CreationProject(id=str(uuid4()), title=value.title, kind=value.kind, source_product_id=str(value.source_product_id) if value.source_product_id else None, owner_id=request.state.image_owner, revision=1,
                 content=json.dumps(data, ensure_ascii=False), created_at=now(), updated_at=now())
             session.add(row)
@@ -390,7 +401,11 @@ def build_creation_router(store):
             if value.planning_model and (not current or value.planning_model not in current['model_names']): raise HTTPException(422, '策划模型未保存。')
             if value.image_model and (not current or value.image_model not in current['model_names']): raise HTTPException(422, '生图模型未保存。')
             if value.goal != data['goal'] or value.image_count != data['image_count']: invalidate(data, 'analysis' if value.goal != data['goal'] and row.kind != 'plan' else 'brief')
-            elif value.style != data['style']: invalidate(data, 'prompts')
+            elif value.style != data['style']: invalidate(data, 'brief')
+            selected_style = value.visual_style.model_dump() if value.visual_style else None
+            if selected_style != data.get('visual_style'):
+                invalidate(data, 'brief')
+                data['visual_style_snapshot'] = snapshot_style(selected_style)
             row.title = value.title
             if any(getattr(value, field) != data.get(field, '') for field in ('market', 'language', 'audience', 'selected_selling_points')):
                 invalidate(data, 'brief')
@@ -517,6 +532,7 @@ def build_creation_router(store):
                 'current_draft': json.loads(active_document(session, data, stage).content) if stage in STAGES and data.get('active', {}).get(stage) else None,
                 'source_documents': dict(data.get('active', {}))}
             payload['conversation'] = data.get('messages', [])[-12:]
+            payload['settings']['visual_style'] = data.get('visual_style_snapshot')
             payload['settings'].update({key: data.get(key, '') for key in ('market', 'language', 'audience', 'selected_selling_points')})
             payload['template'] = data.get('template')
             if data.get('case_reference'):
@@ -556,6 +572,7 @@ PDF 的文字页可读取文本；结构图、表格、扫描页需查看实际�
 事实、建议卖点、待确认问题分开；事实和卖点用文件名、资料 ID、页码标注依据，冲突放入 questions。
 analysis：结合资料提炼 facts、selling_points、questions，不生成图需或图片。
 brief：只依据已确认分析，按目标数量安排 shots，每张提供独立 id、name、objective、selling_point、content、layout、copy、notes、size、reference_ids。
+视觉风格：settings.visual_style 是已锁定版本的视觉表达规范，不能替代实际技能读取。brief 的 art_direction 明确主风格、选择理由、字体层级、配色与整套不变项；每张 layout 写明主体位置/占比、景别、视觉动线、文字位置与层级，notes 说明与相邻图的变化。按选定变化程度安排整套节奏，不机械套同一卡片。用户补充风格与参考图只能控制视觉，不能新增产品事实。
 项目默认：A+ 采用 Premium A+ 桌面端，未明确指定其他模块或手机端时，逐张 size 为 1464x600。首张是有场景、有设计感的产品英雄图，不自动安排白底；只有用户明确要求白底或指定白底上架槽位时才采用白底。用户明确选择的尺寸和风格优先于默认值。
 prompts：严格对照已确认图需逐张编写完整 prompt，shot_id 一致，reference_ids 与图需一致，融入用户补充的风格排版。
 参考图 ID 只能从本任务上传图片中选择；风格参考不能当成产品事实。没有资料支持的参数不要编造。
@@ -603,6 +620,7 @@ def submit_images(store, project_id, execution_id, owner, payload):
     profile.update(prepared_by_agent=True, preserve_prompt=True, creation_project_id=project_id, creation_execution_id=execution_id,
         source_documents=payload['source_documents'], skill_workflow=payload['skill_snapshot'],
         drawing_experience=payload.get('drawing_experience', {}))
+    profile['visual_style'] = payload['settings'].get('visual_style')
     with Session(store.engine) as session:
         source = session.scalar(select(CreationExecution).where(CreationExecution.project_id == project_id, CreationExecution.stage == 'prompts', CreationExecution.status == 'succeeded').order_by(CreationExecution.created_at.desc()).limit(1))
         profile['skill_execution'] = json.loads(source.output).get('trace', {}) if source else {'planning_method': 'manual', 'used_skills': [], 'files': []}
@@ -650,6 +668,10 @@ def process_creation_one(store, planner=None):
             raise GenerationError('连接配置或密钥已改变，请重新提交本阶段。')
         if stage == 'images': result, trace = submit_images(store, project_id, identifier, owner, payload), {}
         else: result, trace = (planner or run_planning)(store, identifier, project_id, payload, stage)
+        if stage in ('brief', 'prompts'):
+            trace['visual_style'] = payload['settings'].get('visual_style')
+        if stage == 'brief':
+            trace['layout_warnings'] = layout_warnings(result['shots'])
         with Session(store.engine) as session, session.begin():
             project = session.get(CreationProject, project_id, with_for_update=True)
             data = json.loads(project.content)
