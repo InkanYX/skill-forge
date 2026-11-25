@@ -241,6 +241,8 @@ def project_view(session, row, detail=True):
     result['source'] = data.get('source')
     result['legacy_product_id'] = data.get('legacy_product_id')
     result['drawing_experience'] = data.get('drawing_experience', {})
+    result['mobile_source'] = data.get('mobile_source')
+    result['case_reference'] = data.get('case_reference')
     if row.source_product_id:
         source = session.get(CreationProject, row.source_product_id)
         latest = json.loads(source.content).get('active', {}).get('analysis') if source else None
@@ -517,6 +519,9 @@ def build_creation_router(store):
             payload['conversation'] = data.get('messages', [])[-12:]
             payload['settings'].update({key: data.get(key, '') for key in ('market', 'language', 'audience', 'selected_selling_points')})
             payload['template'] = data.get('template')
+            if data.get('case_reference'):
+                payload['template'] = {**(payload['template'] or {}), 'case_reference': data['case_reference'],
+                    'case_usage': '仅借鉴视觉风格、信息组织和已确认经验；旧案例参数、文案及SKU不作为目标产品事实。'}
             from app.product_experience import matching_experience
             if row.source_product_id and stage in ('brief', 'prompts'):
                 context = {**data, 'purpose': row.title + '\n' + data.get('goal', '')}

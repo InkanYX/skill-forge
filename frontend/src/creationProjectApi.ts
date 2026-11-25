@@ -14,6 +14,8 @@ export interface Project {
   kind: 'product' | 'plan' | 'legacy'; source_product_id: string | null; analysis_confirmed: boolean; can_edit: boolean;
   legacy_product_id?: string | null;
   drawing_experience?: Record<string, DrawingExperience[]>;
+  mobile_source?: {project_id:string; batch_id:string; job_ids:string[]} | null;
+  case_reference?: {id:string;title:string;guidance:string;style:string} | null;
   source?: { product_id: string; title: string; document_id: string; version: number }; source_updated?: boolean;
   settings: { goal: string; style: string; image_count: number; planning_model: string; image_model: string; market: string; language: string; audience: string; selected_selling_points: string; sku?: string };
   skill: Record<string, unknown>; documents: Record<Stage, ProjectDocument | null>;

@@ -4,6 +4,7 @@ import { materialUrl, projectRequest, type Project } from './creationProjectApi'
 import { useCreationProject } from './useCreationProject';
 import { ProjectFeedback, ProjectLog } from './ProjectParts';
 import TaskResultsPanel from './TaskResultsPanel';
+import ProjectDelivery from './ProjectDelivery';
 
 export default function ImageProduction({id}:{id:string}){
   const state=useCreationProject(id);const {project}=state;
@@ -28,5 +29,6 @@ export default function ImageProduction({id}:{id:string}){
     </section>
     {(!!project.images.length||!!project.batches.length)&&<TaskResultsPanel taskId={id} batches={project.batches} onChanged={()=>void state.refresh()}/>}
     <ProjectLog project={project} stages={['images']}/>
+    <ProjectDelivery key={project.id} project={project} model={model}/>
   </>}</div>;
 }

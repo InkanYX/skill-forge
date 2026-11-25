@@ -150,6 +150,17 @@ class CreationProject(OwnedRecord, Base):
     updated_at: Mapped[str] = mapped_column(String(40), index=True)
 
 
+class WorkflowCase(OwnedRecord, Base):
+    __tablename__ = 'workflow_cases'
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    project_id: Mapped[str] = mapped_column(String(36), index=True)
+    title: Mapped[str] = mapped_column(String(160))
+    summary: Mapped[str] = mapped_column(Text, default='')
+    content: Mapped[str] = mapped_column(Text)
+    request_id: Mapped[str] = mapped_column(String(36), unique=True)
+    created_at: Mapped[str] = mapped_column(String(40))
+
+
 class CreationMaterial(Base):
     __tablename__ = 'creation_materials'
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
