@@ -113,6 +113,22 @@ class Prompts(BaseModel):
     prompts: list[Prompt] = Field(min_length=1, max_length=16)
 
 
+class PromptText(BaseModel):
+    shot_id: str = Field(min_length=1, max_length=80)
+    prompt: str = Field(min_length=1, max_length=32000)
+
+
+class PromptTexts(BaseModel):
+    prompts: list[PromptText] = Field(min_length=1, max_length=16)
+
+
+def inherit_prompt_references(content, brief):
+    """Reference choice belongs exclusively to the confirmed brief, including its order."""
+    shots = {item['id']: item for item in brief['shots']}
+    return {**content, 'prompts': [{**item, 'reference_ids': list(shots.get(item.get('shot_id'), {}).get('reference_ids', []))}
+        for item in content.get('prompts', [])]}
+
+
 SCHEMAS = {'analysis': Analysis, 'brief': Brief, 'prompts': Prompts}
 
 
@@ -190,6 +206,9 @@ def active_document(session, data, stage, confirmed=False):
 
 def validate_document(stage, content, session, data, project_id):
     if stage not in SCHEMAS: raise HTTPException(404, '阶段不存在。')
+    if stage == 'prompts':
+        brief = json.loads(active_document(session, data, 'brief', True).content)
+        content = inherit_prompt_references(content, brief)
     try: value = SCHEMAS[stage].model_validate(content).model_dump(by_alias=True)
     except ValidationError as error:
         raise HTTPException(422, '结果格式不完整：' + '；'.join(e['msg'] for e in error.errors())) from None
@@ -205,8 +224,6 @@ def validate_document(stage, content, session, data, project_id):
             brief = json.loads(active_document(session, data, 'brief', True).content)
             shots = {item['id']: item for item in brief['shots']}
             if set(ids) != set(shots): raise HTTPException(422, '提示词需与已确认图需逐张对应。')
-            if any(set(item['reference_ids']) != set(shots[item['shot_id']]['reference_ids']) for item in entries):
-                raise HTTPException(422, '提示词参考图应与已确认图需一致；需更换时请先修改图需。')
     return value
 
 
@@ -588,7 +605,7 @@ analysis：结合资料提炼 facts、selling_points、questions，不生成图�
 brief：只依据已确认分析，按目标数量安排 shots，每张提供独立 id、name、objective、selling_point、content、layout、copy、notes、size、reference_ids。
 视觉风格：settings.visual_style 是已锁定版本的视觉表达规范，不能替代实际技能读取。brief 的 art_direction 明确主风格、选择理由、字体层级、配色与整套不变项；每张 layout 写明主体位置/占比、景别、视觉动线、文字位置与层级，notes 说明与相邻图的变化。按选定变化程度安排整套节奏，不机械套同一卡片。用户补充风格与参考图只能控制视觉，不能新增产品事实。
 项目默认：A+ 采用 Premium A+ 桌面端，未明确指定其他模块或手机端时，逐张 size 为 1464x600。首张是有场景、有设计感的产品英雄图，不自动安排白底；只有用户明确要求白底或指定白底上架槽位时才采用白底。用户明确选择的尺寸和风格优先于默认值。
-prompts：严格对照已确认图需逐张编写完整 prompt，shot_id 一致，reference_ids 与图需一致，融入用户补充的风格排版。
+prompts：严格对照已确认图需逐张编写完整 prompt，shot_id 一致，融入用户补充的风格排版。只输出 shot_id 和 prompt；参考图由程序固定继承已确认图需，不输出或修改 reference_ids，也不能在提示词中要求新增或替换参考素材。
 参考图 ID 只能从本任务上传图片中选择；风格参考不能当成产品事实。没有资料支持的参数不要编造。
 技能中的接口配置、模型和参数仅作示例；以网站选择为准。不得执行脚本或声称已安装依赖、配置环境、生成图片。
 缺失信息可以在分析的 questions 中提出；后续阶段遵守用户确认的事实和取舍。所有图片调用由确认后的独立阶段执行。'''
@@ -605,7 +622,7 @@ def run_planning(store, execution_id, project_id, payload, stage):
     key = store.key(profile['id'], profile['revision'])
     if not key: raise GenerationError('运行时密钥已失效，请重新填写后提交。')
     brief = {**{k: payload[k] for k in ('settings', 'previous', 'instruction', 'current_draft', 'materials', 'conversation')},
-        'stage': stage, 'template': payload.get('template'), 'output_schema': SCHEMAS[stage].model_json_schema(),
+        'stage': stage, 'template': payload.get('template'), 'output_schema': (PromptTexts if stage == 'prompts' else SCHEMAS[stage]).model_json_schema(),
         'product_drawing_experience': payload.get('drawing_experience', {}).get(stage, []),
         'experience_policy': '这些是人工确认的历史作图建议，不是产品事实。只用于本次适用场景，不能覆盖已确认事实、图需和本轮明确要求。'}
     try:
@@ -614,7 +631,10 @@ def run_planning(store, execution_id, project_id, payload, stage):
         value = reply.strip()
         if value.startswith('```'): value = value.split('\n', 1)[-1].rsplit('```', 1)[0]
         (directory / 'planning-response.txt').write_text(value, encoding='utf-8')
-        parsed = SCHEMAS[stage].model_validate_json(value).model_dump(by_alias=True)
+        content = json.loads(value)
+        if stage == 'prompts':
+            content = inherit_prompt_references(content, payload['previous']['brief'])
+        parsed = SCHEMAS[stage].model_validate(content).model_dump(by_alias=True)
         if stage == 'analysis' and payload['materials']:
             unread = {item['id'] for item in payload['materials']} - {row['material_id'] for row in reads}
             if unread: raise GenerationError('部分产品资料尚未实际读取，未提交分析结果。请精简资料或重新分析。')
