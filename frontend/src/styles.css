@@ -1026,3 +1026,4 @@ fieldset:disabled .visual-style-choice { cursor:default; opacity:.65; }
 .learning-feedback-fields p,.learning-controls p { color:#61727b; font-size:12px; line-height:1.8; }
 .learning-feedback-fields select,.learning-controls select { max-width:100%; }
 .learning-match { padding:14px 0; border-top:1px solid #d8e3e4; }.learning-match small { display:block; margin-bottom:8px; }
+.image-retry-actions { display:grid; justify-items:start; gap:8px; margin:14px 16px; }.image-retry-actions small { color:var(--muted); line-height:1.7; }.image-retry-actions p { margin:0; }

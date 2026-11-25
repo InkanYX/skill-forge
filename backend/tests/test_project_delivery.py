@@ -151,25 +151,30 @@ def test_ordinary_failure_retries_once_and_records_both_attempts(project_setup):
     assert [a['status'] for a in job['execution_result']['attempts']]==['failed','succeeded']
 
 
-def test_repeat_failure_is_bounded_to_two_calls(project_setup):
+def test_repeat_failure_is_bounded_to_three_calls_and_next_image_runs(project_setup):
     client,store,*_=project_setup
     source=submitted(project_setup); calls=[]
     def fail(*args):
         calls.append(1);raise GenerationError('普通失败')
     assert process_standard_one(store,fail)
     job=client.get('/api/image-jobs/'+source['images'][0]['id']).json()
-    assert job['status']=='failed' and len(calls)==2
-    assert len(job['execution_result']['attempts'])==2
+    assert job['status']=='failed' and len(calls)==3
+    assert len(job['execution_result']['attempts'])==3
+    assert process_standard_one(store,executor)
+    jobs=client.get('/api/creation-projects/'+source['id']).json()['images']
+    assert {item['status'] for item in jobs}=={'failed','succeeded'}
 
 
-def test_permission_denial_is_not_retried_and_cancels_remaining_batch(project_setup):
+def test_permission_denial_is_not_retried_and_leaves_remaining_batch_queued(project_setup):
     client,store,*_=project_setup
     source=submitted(project_setup);calls=[]
     def denied(*args):
         calls.append(1);raise GenerationError('权限拒绝',diagnostic={'http_status':403})
     assert process_standard_one(store,denied)
     jobs=client.get('/api/creation-projects/'+source['id']).json()['images']
-    assert len(calls)==1 and {i['status'] for i in jobs}=={'failed','cancelled'}
+    assert len(calls)==1 and {i['status'] for i in jobs}=={'failed','queued'}
+    assert process_standard_one(store,executor)
+    assert {i['status'] for i in client.get('/api/creation-projects/'+source['id']).json()['images']}=={'failed','succeeded'}
 
 
 def test_uncertain_timeout_never_retries_paid_call(project_setup):

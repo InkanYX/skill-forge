@@ -152,9 +152,13 @@ def test_missing_text_model_stops_before_paid_image_call(standard):
     assert response.status_code == 202
     assert process_standard_one(store, lambda *args: pytest.fail('No image call without skill preparation'))
     detail = client.get('/api/image-jobs/tasks/' + response.json()[0]['task_id']).json()
-    assert detail['status'] == 'failed'
+    assert detail['status'] == 'queued'
     assert detail['items'][0]['diagnostic']['error_type'] == 'skill_preparation'
-    assert detail['items'][1]['status'] == 'cancelled'
+    assert detail['items'][1]['status'] == 'queued'
+    assert process_standard_one(store, lambda *args: pytest.fail('No image call without skill preparation'))
+    detail = client.get('/api/image-jobs/tasks/' + response.json()[0]['task_id']).json()
+    assert detail['status'] == 'failed'
+    assert {item['status'] for item in detail['items']} == {'failed'}
 
 
 def test_failed_review_preserves_native_image_and_requires_manual_review(workflow, monkeypatch):

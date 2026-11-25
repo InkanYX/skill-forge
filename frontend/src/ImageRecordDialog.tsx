@@ -2,6 +2,7 @@ import { apiFetch } from './apiFetch';
 import { useEffect, useRef, useState } from 'react';
 import { formatImageSize } from './ImageSizePicker';
 import TaskCancel from './TaskCancel';
+import ImageRetry from './ImageRetry';
 import ExperienceEditor from './ExperienceEditor';
 import { DrawingExperienceUsed } from './ProductExperience';
 import RevisionTrail from './RevisionTrail';
@@ -39,6 +40,7 @@ export default function ImageRecordDialog({ item, onClose, onChanged }: { item?:
         <TaskCancel key={selected.id} jobId={selected.id} status={selected.status} onChanged={reply => { if (reply.status === "cancelled") setSelected(previous => previous ? { ...previous, status: "cancelled", message: reply.message || "已取消排队。" } : previous); onChanged(); }} />
         {selected.image_url && <p><a className="button-primary" href={`#/edit?source=${selected.id}`} onClick={e => { if (!close()) e.preventDefault(); }}>继续修改这张图</a></p>}
         {selected.status === 'unknown' && <p className="feedback feedback-warning">请先核对服务商的生成与计费记录。本任务不会自动重试。</p>}
+        <ImageRetry key={selected.id} item={selected} onSubmitted={onChanged} />
         {selected.status === 'succeeded' && <><button type="button" className="button-secondary" aria-pressed={selected.is_favorite} disabled={favoriteBusy || selected.can_edit === false} onClick={toggleFavorite}>{favoriteBusy ? '保存中…' : selected.is_favorite ? '取消收藏' : '收藏这张图'}</button>{favoriteError && <p className="feedback feedback-error" role="alert">{favoriteError}</p>}<ExperienceEditor readOnly={selected.can_edit === false} key={selected.id} jobId={selected.id} onDirtyChange={setCaseDirty} onSavingChange={setCaseBusy} onSaved={note => { setSelected(previous => previous ? { ...previous, case_id: note.id } : previous); onChanged(); }} /></>}
       </div><div className="artwork-record"><span className={`job-status job-${selected.status}`}>{labels[selected.status]}</span><dl className="job-details"><div><dt>模型</dt><dd>{selected.config_name} · {selected.model_name}</dd></div><div><dt>创建时间</dt><dd>{new Date(selected.created_at).toLocaleString('zh-CN')}</dd></div><div><dt>制作方式</dt><dd>{selected.mode === 'edit' ? '参考图编辑' : '文字生图'}</dd></div><div><dt>{selected.execution_profile?.backend ? "目标画幅" : "请求尺寸"}</dt><dd>{selected.execution_profile?.backend ? formatImageSize(selected.size) : selected.size === "default" ? "自动（未指定尺寸）" : `${selected.size.replace("x", " × ")} 像素`}</dd></div></dl>
         <SkillExecutionInfo item={selected} />

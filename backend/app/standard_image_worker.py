@@ -78,23 +78,25 @@ def process_standard_one(store, executor=execute_cli, preparer=None, reviewer=No
                 active = session.get(AgentRun, run_id, with_for_update=True)
                 if active is None or active.status == 'cancelled':
                     raise CancelledBeforeImage()
+                # Standard skill submissions have a per-image allowance, including older queued runs.
+                active.max_images = max(active.max_images, active.image_calls + 3)
                 active.image_calls += 1
         attempts = []
-        for attempt in range(2):
+        for attempt in range(3):
             try:
                 result = executor(directory, profile, key, prompt, reference)
                 attempts.append({'attempt': attempt + 1, 'status': 'succeeded', 'at': now()})
                 break
             except GenerationError as error:
                 code = error.diagnostic.get('http_status')
-                retryable = not error.uncertain and code not in (400, 401, 403, 404, 405, 422)
+                retryable = not error.uncertain and code not in (401, 403)
                 # A saved output may already be paid for; never place another order.
                 output_exists = any((directory / ('result.' + suffix)).exists() for suffix in ('png', 'jpg', 'webp'))
                 if output_exists: error.uncertain = True
                 attempts.append({'attempt': attempt + 1, 'status': 'unknown' if error.uncertain else 'failed',
                     'diagnostic': error.diagnostic, 'at': now(), 'retryable': retryable and not output_exists})
                 result['attempts'] = attempts
-                if attempt or not retryable or output_exists:
+                if attempt >= 2 or not retryable or output_exists:
                     raise
                 if run_id:
                     with Session(store.engine) as session, session.begin():
@@ -105,7 +107,7 @@ def process_standard_one(store, executor=execute_cli, preparer=None, reviewer=No
                         active.image_calls += 1
                 with Session(store.engine) as session, session.begin():
                     session.execute(update(ImageJob).where(ImageJob.id == identifier).values(
-                        message='首次调用明确失败，正在自动补试一次（最多两次）。',
+                        message=f'本张第 {attempt + 1} 次调用失败，正在尝试第 {attempt + 2} 次（最多 3 次）；不影响其他图片。',
                         execution_result=json.dumps({'attempts': attempts}, ensure_ascii=False),
                         lease_until=time.time() + 900, updated_at=now()))
         result['attempts'] = attempts
@@ -153,12 +155,6 @@ def process_standard_one(store, executor=execute_cli, preparer=None, reviewer=No
     with Session(store.engine) as session, session.begin():
         run = session.get(AgentRun, run_id, with_for_update=True) if run_id else None
         session.execute(update(ImageJob).where(ImageJob.id == identifier, ImageJob.status == 'running').values(status=status, message=message, provider_diagnostic=json.dumps(diagnostic, ensure_ascii=False), execution_result=json.dumps(result, ensure_ascii=False), updated_at=now(), lease_until=None))
-        if diagnostic.get('http_status') in (401,403):
-            current_job = session.get(ImageJob,identifier)
-            if current_job and current_job.task_id:
-                session.execute(update(ImageJob).where(ImageJob.task_id == current_job.task_id,
-                    ImageJob.config_id == current_job.config_id,ImageJob.status == 'queued').values(
-                        status='cancelled',message='当前批次鉴权或权限被拒绝，已停止后续请求；请检查模型配置。',updated_at=now()))
         if run_id:
             if run and run.status == 'waiting_images':
                 record_path = directory / 'skill-workflow.json'
@@ -169,9 +165,6 @@ def process_standard_one(store, executor=execute_cli, preparer=None, reviewer=No
                 session.add(AgentStep(run_id=run.id, step_index=run.steps_count, kind='tool', tool_name='image_workflow',
                     arguments=json.dumps({'job_id': identifier}, ensure_ascii=False),
                     result=json.dumps({'status': status, 'message': message, 'review': result.get('agent_review')}, ensure_ascii=False), created_at=now()))
-                if status != 'succeeded':
-                    session.execute(update(ImageJob).where(ImageJob.agent_run_id == run_id, ImageJob.status == 'queued')
-                                    .values(status='cancelled', message='本轮已有调用失败或结果待确认，已停止后续提交。', updated_at=now()))
     if run_id:
         synchronize_creation(store.engine, run_id)
     return True
@@ -184,11 +177,6 @@ def synchronize_creation(engine, run_id):
         if run is None or run.status != 'waiting_images':
             return
         jobs = list(session.scalars(select(ImageJob).where(ImageJob.agent_run_id == run_id)))
-        if any(item.status in ('failed', 'unknown') for item in jobs):
-            for item in jobs:
-                if item.status == 'queued':
-                    item.status, item.message, item.updated_at = 'cancelled', '本轮存在失败或待确认调用，已停止后续提交。', now()
-            session.flush()
         if any(item.status in ('queued', 'running') for item in jobs):
             return
         status, message = delivery_status(engine, run_id, images=jobs)

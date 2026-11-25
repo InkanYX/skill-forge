@@ -280,7 +280,7 @@ def create_jobs(engine, directory, config_id, model_name, prompt, size, request_
                 skill_id=primary_skill['skill_id'], skill_version_id=primary_skill['version_id'], config_id=config_id,
                 status='waiting_images', goal=parent.goal if parent else (image_set['name'] + '\n' + prompt if image_set else prompt),
                 model_name='', vision_model_name='', steps_count=0, image_calls=0,
-                max_steps=20, max_images=count, summary='', error='', created_at=now(), updated_at=now())
+                max_steps=20, max_images=count * 3, summary='', error='', created_at=now(), updated_at=now())
             session.add(creation)
             from app.creation_conversations import history_context
             with session.no_autoflush:
@@ -513,6 +513,12 @@ def build_image_router(engine, directory: Path, image_configs=None):
     def cancel_single_task(job_id: UUID, action: Annotated[Literal['cancel'], Form()]):
         require_database()
         return cancel_job(engine, str(job_id))
+
+    @router.post('/{job_id}/retry', response_model=JobView, status_code=202)
+    def retry_image(job_id: UUID, request: Request, request_id: Annotated[UUID, Form()]):
+        require_database()
+        from app.image_retry import retry_job
+        return retry_job(engine, directory, image_configs, str(job_id), str(request_id), request.state.image_owner)
 
     @router.get('/library', response_model=LibraryPage)
     def library(page: Annotated[int, Query(ge=1, le=100000)] = 1, page_size: Annotated[int, Query(ge=1, le=48)] = 12, status: Literal['all', 'queued', 'running', 'succeeded', 'failed', 'unknown', 'cancelled'] = 'succeeded', q: Annotated[str, Query(max_length=200)] = '', product_id: UUID | None = None, template_id: UUID | None = None, favorite: bool = False, has_notes: bool = False):

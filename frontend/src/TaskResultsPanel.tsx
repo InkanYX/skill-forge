@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import ExportDownload from './ExportDownload';
 import { formatImageSize } from './ImageSizePicker';
 import ImageRecordDialog from './ImageRecordDialog';
+import ImageRetry from './ImageRetry';
 import SkillExecutionInfo from './SkillExecutionInfo';
 import { startTaskPolling } from './taskPolling';
 import { imageBatches, type ImageBatch } from './imageBatches.mjs';
@@ -53,6 +54,11 @@ export default function TaskResultsPanel({ taskId, active = true, focusJobId, ba
     log?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     log?.focus({ preventScroll: true });
   }
+  useEffect(() => {
+    if (!rawTask || !focusJobId || located.current === focusJobId) return;
+    const group = groups.find(group => group.items.some(item => item.id === focusJobId));
+    if (group) setBatchId(group.id);
+  }, [rawTask, focusJobId]);
   useEffect(() => {
     if (!task || !focusJobId || located.current === focusJobId) return;
     const item = task.items.find(item => item.id === focusJobId);
@@ -111,6 +117,7 @@ export default function TaskResultsPanel({ taskId, active = true, focusJobId, ba
         <div className="task-image-caption">{item.execution_result?.native_pixels && <small>原生尺寸 {item.execution_result.native_pixels.join(" × ")} · 图片反馈：{({pending:"待评价",passed:"满意",rework:"需要修改"} as Record<string,string>)[item.execution_result.review?.status || "pending"]}</small>}<strong>{index + 1}. {item.shot_name || '候选图片'}</strong><SkillExecutionInfo item={item} />
           {item.execution_result?.agent_review && <details><summary>{({passed:'自动质检通过',rework:'质检需要修改',uncertain:'待人工审核'})[item.execution_result.agent_review.status]}</summary><p>{item.execution_result.agent_review.summary}</p><ul>{item.execution_result.agent_review.checks.map(check => <li key={check.item}>{check.detail}</li>)}</ul></details>}
           {item.image_url && <span className={`job-status job-${item.status}`}>{taskLabels[item.status]}</span>}{item.image_url && <div className="result-actions"><button type="button" className="button-secondary" onClick={() => setSelected(item)}>图片详情</button><a href={`${item.image_url}?download=true`}>下载</a><a href={task.agent_run_id && task.can_manage !== false ? `#/studio?run=${task.agent_run_id}&source=${item.id}` : `#/edit?source=${item.id}`}>继续修改</a></div>}</div>
+        {task.can_manage !== false && <ImageRetry key={item.id} item={item} onSubmitted={()=>{void poller.current?.refresh();onChanged?.();}} />}
         {item.can_edit !== false && task.can_manage !== false && !['queued','running','unknown'].includes(item.status) && <div className="image-delete-actions">{pendingDelete===item.id?<><span>删除此图片？可撤销，原文件保留。</span><button type="button" className="button-secondary" disabled={removing} onClick={()=>void removeImage(item)}>确认删除</button><button type="button" className="button-secondary" disabled={removing} onClick={()=>setPendingDelete('')}>取消</button></>:<button type="button" className="image-delete-button" disabled={removing} onClick={()=>setPendingDelete(item.id)}>删除图片</button>}</div>}
       </article>)}</div>
       {!task.items.length&&<p>此版本暂无可显示图片，已删除的图片不会出现在记录中。</p>}
@@ -121,6 +128,7 @@ export default function TaskResultsPanel({ taskId, active = true, focusJobId, ba
         const time = diagnostic?.recorded_at || item.updated_at;
         return <article id={`task-log-${taskId}-${item.id}`} key={item.id} tabIndex={-1} ref={element => { if (element) logs.current.set(item.id, element); else logs.current.delete(item.id); }} className={`task-log-card${highlight === item.id ? ' task-log-highlight' : ''}${failed ? ' task-log-error' : ''}`} aria-label={`第 ${index + 1} 张图片运行日志`}>
           <header><strong>{index + 1}. {item.shot_name || '候选图片'} · {taskLabels[item.status]}</strong><time dateTime={time}>{formatTaskTime(time)}</time></header>
+          {typeof item.execution_profile?.retry_source_job_id==='string'&&<p>本条为单张重试，<a href={'#/library?job='+item.execution_profile.retry_source_job_id}>查看原失败记录</a>。</p>}
           {!!item.execution_result?.attempts?.length&&<details><summary>调用记录 · {item.execution_result.attempts.length} 次{item.execution_result.attempts.length>1?'（含自动补试）':''}</summary>{item.execution_result.attempts.map(a=><p key={a.attempt}>第 {a.attempt} 次：{taskLabels[a.status]||a.status} {a.diagnostic?.http_status&&`HTTP ${a.diagnostic.http_status}`} · {formatTaskTime(a.at)}</p>)}</details>}
           {diagnostic ? <><div className="task-log-context">{diagnostic.http_status != null && <strong>HTTP {diagnostic.http_status}</strong>}<code>{diagnostic.method} {diagnostic.path}</code>{diagnostic.elapsed_ms != null && <span>{(diagnostic.elapsed_ms / 1000).toFixed(2)} 秒</span>}</div><pre>{diagnostic.response_body || diagnostic.provider_message || diagnostic.error_type || item.message}</pre>{diagnostic.request_id && <small className="task-request-id">Request ID: {diagnostic.request_id}</small>}</> : <p>{item.message || taskLabels[item.status]}{failed && <small className="task-legacy-log">此历史记录未保存服务商响应正文。</small>}</p>}
         </article>;
