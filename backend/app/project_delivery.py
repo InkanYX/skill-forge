@@ -14,13 +14,16 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 from starlette.background import BackgroundTask
 
-from app.authorization import require_edit, owner_view
+from app.authorization import require_edit, owner_view, principal
+from app.team_libraries import shared_case, case_rows, author
+from app.team_sharing import clean
 from app.database import (CreationProject, CreationMaterial, CreationDocument, CreationExecution,
                           ImageJob, WorkflowCase, CreativeCase)
 from app.creation_projects import (load_project, check_idle, project_view, save_document,
     clone_materials, material_view, active_document, ProjectInput, touch, LOCK)
 from app.creation_materials import material_path
 from app.image_jobs import artifact, now
+from app.image_batches import normalize_batches
 
 MAX_CASE_BYTES = 500 * 1024 * 1024
 
@@ -50,9 +53,9 @@ def case_root(storage, identifier):
 
 
 def case_view(row, detail=False):
-    data = json.loads(row.content)
+    data = clean(json.loads(row.content))
     return {'id': row.id, 'project_id': row.project_id, 'title': row.title, 'summary': row.summary,
-        'created_at': row.created_at, **owner_view(row), 'image_count': sum(i['status']=='succeeded' for i in data['images']),
+        'created_at': row.created_at, 'owner_id':row.owner_id,'can_edit':not principal.get() or row.owner_id==principal.get()['id'], 'image_count': sum(i['status']=='succeeded' for i in data['images']),
         'material_count': len(data['materials']), 'format_version': 1,
         **({'snapshot': data} if detail else {})}
 
@@ -93,7 +96,7 @@ def build_delivery_router(store):
             require_edit(source); check_idle(session, source.id)
             if data.get('mobile_source'):
                 raise HTTPException(409, '当前已是手机版方案，请从桌面原方案发起。')
-            batch = next((b for b in data.get('batches',[]) if b['execution_id']==str(value.batch_id)), None)
+            batch = next((b for b in normalize_batches(data.get('batches',[])) if b['execution_id']==str(value.batch_id)), None)
             if not batch or not batch['job_ids']: raise HTTPException(422, '请选择一个完整的桌面生成版本。')
             jobs = [session.get(ImageJob, identifier) for identifier in batch['job_ids']]
             if any(not j or j.task_id != source.id or j.deleted_at or j.status != 'succeeded' for j in jobs):
@@ -204,10 +207,10 @@ def build_delivery_router(store):
             project_ids=[p.id for p in related]
             jobs=list(session.scalars(select(ImageJob).where(ImageJob.task_id.in_(project_ids),ImageJob.deleted_at.is_(None)).order_by(ImageJob.created_at,ImageJob.task_index)))
             if not any(j.status=='succeeded' for j in jobs): raise HTTPException(409,'请先完成至少一张图片。')
-            if any(j.status=='unknown' for j in jobs): raise HTTPException(409,'存在结果待确认的任务，请先核对后再归档。')
+            # Uncertain historical calls are preserved as records, never resubmitted by archiving.
             identifier=str(uuid4()); root=case_root(store.directory,identifier)
-            snapshot=project_view(session,project)
-            snapshot['related_projects']=[project_view(session,p) for p in related if p.id!=project.id]
+            snapshot=clean(project_view(session,project))
+            snapshot['related_projects']=[clean(project_view(session,p)) for p in related if p.id!=project.id]
             all_views=[snapshot,*snapshot['related_projects']]
             snapshot['images']=[image for view in all_views for image in view['images']]
             snapshot['materials']=[material for view in all_views for material in view['materials']]
@@ -276,23 +279,21 @@ def build_delivery_router(store):
     def cases(q: str=''):
         require_db()
         with Session(store.engine) as session:
-            query=select(WorkflowCase)
-            if q.strip(): query=query.where(WorkflowCase.title.icontains(q.strip(),autoescape=True)|WorkflowCase.summary.icontains(q.strip(),autoescape=True))
-            return [case_view(c) for c in session.scalars(query.order_by(WorkflowCase.created_at.desc()).limit(100))]
+            return [{**case_view(c),'author':author(session,c.owner_id)} for c in case_rows(session,q)]
 
     @router.get('/workflow-cases/{case_id}')
     def get_case(case_id: UUID):
         require_db()
         with Session(store.engine) as session:
-            row=session.get(WorkflowCase,str(case_id))
+            row=shared_case(session,case_id)
             if not row: raise HTTPException(404,'案例不存在。')
-            return case_view(row,True)
+            return {**case_view(row,True),'author':author(session,row.owner_id)}
 
     @router.get('/workflow-cases/{case_id}/images/{job_id}')
     def case_image(case_id: UUID,job_id: UUID,preview: bool=True):
         require_db()
         with Session(store.engine) as session:
-            row=session.get(WorkflowCase,str(case_id))
+            row=shared_case(session,case_id)
             if not row: raise HTTPException(404,'案例不存在。')
             files=json.loads(row.content)['files']
             prefix=f'images/{job_id}/'
@@ -305,9 +306,9 @@ def build_delivery_router(store):
     def download_case(case_id: UUID):
         require_db()
         with Session(store.engine) as session:
-            row=session.get(WorkflowCase,str(case_id))
+            row=shared_case(session,case_id)
             if not row: raise HTTPException(404,'案例不存在。')
-            snapshot=json.loads(row.content)
+            snapshot=clean(json.loads(row.content))
             handle=tempfile.NamedTemporaryFile(suffix='.zip',delete=False); temporary=Path(handle.name); handle.close()
             try:
                 root=case_root(store.directory,str(case_id))
@@ -328,7 +329,7 @@ def build_delivery_router(store):
     def reuse_case(case_id: UUID,value: ReuseInput,request: Request):
         require_db()
         with LOCK, Session(store.engine) as session,session.begin():
-            row=session.get(WorkflowCase,str(case_id))
+            row=shared_case(session,case_id)
             if not row: raise HTTPException(404,'案例不存在。')
             target=session.get(CreationProject,str(value.request_id))
             if target:
@@ -348,6 +349,12 @@ def build_delivery_router(store):
             settings=snapshot['settings']
             reference={'id':row.id,'title':row.title,'guidance':row.summary,'style':settings.get('style',''),
                 'layouts':[{'name':s['name'],'objective':s.get('objective',''),'layout':s.get('layout','')} for d in snapshot['history'] if d['stage']=='brief' for s in d['content'].get('shots',[])][-16:]}
+            data=ProjectInput(title=value.title,kind='plan',source_product_id=UUID(source.id),
+                goal='参考案例的视觉和编排方法，为当前产品重新策划；只使用当前产品已确认事实。',
+                style=settings.get('style',''),visual_style=settings.get('visual_style'),image_count=settings.get('image_count',4),planning_model=planner,
+                image_model=current.get('image_model_name','')).model_dump(mode='json',exclude={'title','revision'})
+            # Skill preparation may seed a catalog in its own transaction. Complete it before writing the new plan.
+            skill_snapshot=snapshot_for(store.engine,store.directory,request.state.image_owner,data['goal'],data['skill'])
             target=CreationProject(id=str(value.request_id),title=value.title,kind='plan',source_product_id=source.id,
                 owner_id=request.state.image_owner,revision=1,content='{}',created_at=now(),updated_at=now())
             session.add(target)
@@ -365,13 +372,9 @@ def build_delivery_router(store):
                 session.add(CreationMaterial(id=identifier,project_id=target.id,name=row.title+' · 仅作风格参考',kind='风格参考',
                     media_type=mime,digest=item['sha256'],size=len(raw),pages=pages,created_at=now()))
                 reference.setdefault('style_material_ids',[]).append(identifier)
-            data=ProjectInput(title=value.title,kind='plan',source_product_id=UUID(source.id),
-                goal='参考案例的视觉和编排方法，为当前产品重新策划；只使用当前产品已确认事实。',
-                style=settings.get('style',''),visual_style=settings.get('visual_style'),image_count=settings.get('image_count',4),planning_model=planner,
-                image_model=current.get('image_model_name','')).model_dump(mode='json',exclude={'title','revision'})
             data.update(active={},messages=[],batches=[],stage='brief',case_reference=reference,
                 source={'product_id':source.id,'title':source.title,'document_id':analysis.id,'version':analysis.version,'materials':mapping},
-                skill_snapshot=snapshot_for(store.engine,store.directory,request.state.image_owner,data['goal'],data['skill']))
+                skill_snapshot=skill_snapshot)
             data['visual_style_snapshot'] = snapshot.get('visual_style_snapshot')
             text=analysis.content
             for old,new in mapping.items(): text=text.replace(old,new)

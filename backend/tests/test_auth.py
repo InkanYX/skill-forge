@@ -70,20 +70,21 @@ def test_member_cannot_escalate_or_administer(accounts):
     assert admin.put('/api/admin/users/'+actor['id'],json={'display_name':'admin','is_active':False}).status_code==409
     with pytest.raises(Exception):initialize_admin(engine,'another-admin','password')
 
-def test_shared_content_read_copy_and_write_ownership(accounts):
+def test_personal_content_is_private_even_from_admin(accounts):
     admin,_,_,_=accounts
     first,user=member(accounts,'alice');second,_=member(accounts,'bob')
     product=first.post('/api/products',json={'sku':'AUTH-PRODUCT','name':'pergola'}).json()
     assert product['owner_id']==user['id'] and product['can_edit']
-    assert not second.get('/api/products').json()[0]['can_edit']
-    assert second.put('/api/products/'+product['id'],json={'sku':'AUTH-PRODUCT','name':'tampered','revision':1}).status_code==403
+    assert second.get('/api/products').json()==[]
+    assert admin.get('/api/products').json()==[]
+    assert second.put('/api/products/'+product['id'],json={'sku':'AUTH-PRODUCT','name':'tampered','revision':1}).status_code==404
     assert second.post('/api/products',json={'sku':'MY-COPY','name':'pergola'}).status_code==201
     template=first.post('/api/templates',json={'name':'template','prompt':'same product'}).json()
-    assert second.put('/api/templates/'+template['id'],json={'name':'tampered','prompt':'wrong','revision':1}).status_code==403
+    assert second.put('/api/templates/'+template['id'],json={'name':'tampered','prompt':'wrong','revision':1}).status_code==404
     assert second.post('/api/templates',json={'name':'copy','prompt':template['prompt']}).status_code==201
     skill=first.post('/api/skills',json={'name':'skill','content':'keep structure'}).json()
-    assert second.put('/api/skills/'+skill['id'],json={'name':'tampered','content':'wrong','revision':1}).status_code==403
-    assert admin.put('/api/products/'+product['id'],json={'sku':'AUTH-PRODUCT','name':'admin edit','revision':1}).status_code==200
+    assert second.put('/api/skills/'+skill['id'],json={'name':'tampered','content':'wrong','revision':1}).status_code==404
+    assert admin.put('/api/products/'+product['id'],json={'sku':'AUTH-PRODUCT','name':'admin edit','revision':1}).status_code==404
     assert next(p for p in first.get('/api/products').json() if p['id']==product['id'])['owner_id']==user['id']
 
 def test_private_connections_isolated_even_from_admin(accounts):
@@ -105,12 +106,14 @@ def test_disable_revokes_sessions_cancels_queue_and_blocks_other_task_mutations(
     submitted=first.post('/api/image-jobs/batch',files={k:(None,v) for k,v in {'config_id':config['id'],'request_id':str(uuid4()),'prompt':'test'}.items()})
     assert submitted.status_code==202,submitted.text
     job=submitted.json()[0]
-    assert job['owner_id']==user['id'] and not second.get('/api/image-jobs/'+job['id']).json()['can_edit']
+    assert job['owner_id']==user['id'] and second.get('/api/image-jobs/'+job['id']).status_code==404
     for path in (job['id'], 'tasks/'+job['task_id']):
-        assert second.post('/api/image-jobs/'+path+'/cancel',files={'action':(None,'cancel')}).status_code==403
+        assert second.post('/api/image-jobs/'+path+'/cancel',files={'action':(None,'cancel')}).status_code==404
     assert admin.put('/api/admin/users/'+user['id'],json={'display_name':'alice','is_active':False}).status_code==200
     assert first.get('/api/products').status_code==401
-    assert admin.get('/api/image-jobs/'+job['id']).json()['status']=='cancelled'
+    assert admin.get('/api/image-jobs/'+job['id']).status_code==404
+    from app.database import ImageJob
+    with Session(accounts[2]) as session: assert session.get(ImageJob,job['id']).status=='cancelled'
     assert not process_standard_one(app.state.image_configs,lambda *args:pytest.fail('disabled user must not generate'))
     assert not app.state.image_configs.keys.get(config['id'])
     assert admin.put('/api/admin/users/'+user['id'],json={'display_name':'alice','is_active':True}).status_code==200

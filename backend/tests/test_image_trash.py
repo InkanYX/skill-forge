@@ -56,7 +56,7 @@ def test_delete_and_restore_enforce_owner_permissions(accounts):
     identifier = submit(owner, save(owner))[0]['id']
     with Session(engine) as session, session.begin():
         session.get(ImageJob,identifier).status = 'failed'
-    assert other.delete('/api/image-jobs/'+identifier).status_code == 403
+    assert other.delete('/api/image-jobs/'+identifier).status_code == 404
     assert owner.delete('/api/image-jobs/'+identifier).status_code == 200
-    assert other.post('/api/image-jobs/'+identifier+'/restore', files={'action':(None,'restore')}).status_code == 403
+    assert other.post('/api/image-jobs/'+identifier+'/restore', files={'action':(None,'restore')}).status_code == 404
     assert owner.post('/api/image-jobs/'+identifier+'/restore', files={'action':(None,'restore')}).status_code == 200

@@ -116,12 +116,17 @@ def test_shared_product_is_readonly_and_member_plans_use_their_own_connection(ac
     source = admin.post('/api/creation-projects',json={'kind':'product','title':'共享产品','planning_model':'planner','goal':'已整理事实'}).json()
     source = confirm(admin,edit(admin,source,'analysis',{'facts':'四根立柱','selling_points':'庭院遮阳'}),'analysis')
     visible = reader.get('/api/creation-projects/'+source['id'])
-    assert visible.status_code == 200 and not visible.json()['can_edit']
-    assert any(item['id']==source['id'] for item in reader.get('/api/creation-projects?kind=product&ready=true').json())
+    assert visible.status_code == 404
+    assert reader.get('/api/creation-projects?kind=product&ready=true').json()==[]
     assert reader.put('/api/creation-projects/'+source['id']+'/documents/analysis',json={'revision':source['revision'],'content':{'facts':'替换','selling_points':'替换'}}).status_code == 404
-    copied = plan(reader,source)
+    assert plan(reader,source).status_code==404
+    share=next(item for item in reader.get('/api/team-shares').json()['items'] if item['project_id']==source['id'])
+    response=reader.post('/api/team-shares/'+share['id']+'/copy',json={'request_id':str(uuid4()),'title':'独立产品','version':share['version']})
+    assert response.status_code==201,response.text
+    own=reader.get('/api/creation-projects/'+response.json()['id']).json()
+    copied = plan(reader,own)
     assert copied.status_code == 201, copied.text
-    assert copied.json()['source']['product_id'] == source['id']
+    assert copied.json()['source']['product_id'] == own['id']
     assert copied.json()['owner_id'] != source['owner_id']
 
 

@@ -117,14 +117,15 @@ def test_summary_receives_scores_and_preferences_without_uploading_images(projec
     assert 'composition' in calls[0][-1]['content'] and 'data:image' not in calls[0][-1]['content']
 
 
-def test_library_and_portable_rules_do_not_leak_other_members_data(accounts):
+def test_library_shares_rules_but_personal_exports_and_matching_stay_owned(accounts):
     first,user=member(accounts,'learner-one'); second,_=member(accounts,'learner-two')
     source=first.post('/api/creation-projects',json={'kind':'product','title':'甲产品'}).json()
     rule=first.post('/api/product-experience/'+source['id'],json={'guidance':'本人视觉方法','reuse_scope':'global','portable_confirmed':True,'status':'active'})
     assert rule.status_code==201,rule.text
     assert first.get('/api/product-experience/library').json()['experiences'][0]['guidance']=='本人视觉方法'
-    assert second.get('/api/product-experience/library').json()['experiences']==[]
-    assert second.get('/api/product-experience/'+source['id']+'/export').status_code==403
+    shared=second.get('/api/product-experience/library').json()['experiences']
+    assert len(shared)==1 and shared[0]['can_edit'] is False and shared[0]['author']['id']==user['id']
+    assert second.get('/api/product-experience/'+source['id']+'/export').status_code==404
     target=second.post('/api/creation-projects',json={'kind':'product','title':'乙产品'}).json()
     with Session(accounts[2]) as session:
         assert matching_experience(session,target['id'],{},owner_id=target['owner_id'])==[]

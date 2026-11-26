@@ -176,7 +176,7 @@ def create_jobs(engine, directory, config_id, model_name, prompt, size, request_
         set_meta = {'set_id': request_id if image_set else None, 'set_name': image_set['name'] if image_set else '', 'shot_name': '', 'shot_index': None}
         if source_job_id:
             source = session.get(ImageJob, source_job_id)
-            if source is None or source.status != 'succeeded':
+            if source is None or source.deleted_at or source.status != 'succeeded':
                 raise HTTPException(422, '只能基于已完成的作品继续修改。')
             inherited_skill = json.loads(source.execution_profile or '{}').get('skill_workflow', {}).get('primary')
             path = artifact(directory, source.id, 'result.png')
@@ -321,6 +321,32 @@ def create_jobs(engine, directory, config_id, model_name, prompt, size, request_
                         or (source.id if source.mode == 'edit' else None)) if source else identifier if reference else None
                     profile['creation_brief'] = plan['prompt']
                     profile['conversation_context'] = creation_context
+                if source:
+                    source_profile = json.loads(source.execution_profile or '{}')
+                    if not profile.get('skill_workflow'):
+                        from app.creation_skills import snapshot_for
+                        profile['skill_workflow'] = snapshot_for(engine, directory, job_owner, edit_instruction,
+                            inherited=source_profile.get('skill_workflow'))
+                    profile['identity_reference_job_id'] = source_profile.get('identity_reference_job_id') or (source.id if source.mode == 'edit' else None)
+                    for field in ('shot_role', 'image_type', 'visual_style', 'creation_project_id', 'source_documents'):
+                        if field in source_profile:
+                            profile[field] = source_profile[field]
+                    if not profile.get('shot_role') and source_profile.get('skill_workflow', {}).get('purpose') == 'main-image':
+                        profile['shot_role'] = 'main-image'
+                    confirmed = dict(source_profile.get('revision_context', {}).get('confirmed_documents', {}))
+                    if source_profile.get('source_documents'):
+                        from app.database import CreationDocument
+                        for stage, doc_id in source_profile['source_documents'].items():
+                            doc = session.get(CreationDocument, doc_id)
+                            if doc and doc.project_id == source_profile.get('creation_project_id') and doc.confirmed_at:
+                                content = json.loads(doc.content)
+                                if stage == 'analysis': confirmed[stage] = content
+                                if stage == 'brief': confirmed['shot'] = next((shot for shot in content.get('shots', []) if shot['name'] == source.shot_name), {})
+                    profile['revision_context'] = {'source_job_id':source.id, 'user_instruction':edit_instruction,
+                        'source_prompt':source.prompt, 'product_snapshot':product_snapshot,
+                        'confirmed_documents':confirmed, 'shot_role':profile.get('shot_role', ''),
+                        'image_type':profile.get('image_type', '')}
+                    profile['revision_prepared'] = False
                 row.execution_profile = json.dumps(profile, ensure_ascii=False)
             if reference:
                 path = artifact(directory, identifier, "reference.png")
@@ -515,10 +541,10 @@ def build_image_router(engine, directory: Path, image_configs=None):
         return cancel_job(engine, str(job_id))
 
     @router.post('/{job_id}/retry', response_model=JobView, status_code=202)
-    def retry_image(job_id: UUID, request: Request, request_id: Annotated[UUID, Form()]):
+    def retry_image(job_id: UUID, request: Request, request_id: Annotated[UUID, Form()], provider_checked: Annotated[bool, Form()] = False):
         require_database()
         from app.image_retry import retry_job
-        return retry_job(engine, directory, image_configs, str(job_id), str(request_id), request.state.image_owner)
+        return retry_job(engine, directory, image_configs, str(job_id), str(request_id), request.state.image_owner, provider_checked=provider_checked)
 
     @router.get('/library', response_model=LibraryPage)
     def library(page: Annotated[int, Query(ge=1, le=100000)] = 1, page_size: Annotated[int, Query(ge=1, le=48)] = 12, status: Literal['all', 'queued', 'running', 'succeeded', 'failed', 'unknown', 'cancelled'] = 'succeeded', q: Annotated[str, Query(max_length=200)] = '', product_id: UUID | None = None, template_id: UUID | None = None, favorite: bool = False, has_notes: bool = False):
@@ -632,6 +658,22 @@ def build_image_router(engine, directory: Path, image_configs=None):
                 raise HTTPException(404, '生成记录不存在。')
             diagnostic = json.loads(row.provider_diagnostic or '{}')
             return {'job_id': row.id, 'status': row.status, 'model_name': row.model_name, 'summary': row.message, 'diagnostic': diagnostic or None}
+
+    @router.get('/{job_id}/revisions')
+    def inline_revisions(job_id: UUID):
+        require_database()
+        with Session(engine) as session:
+            root = session.get(ImageJob, str(job_id))
+            if root is None or root.deleted_at:
+                raise HTTPException(404, '作品不存在。')
+            # UNION removes cycles and includes chained edits and retry siblings.
+            tree = select(ImageJob.id).where(ImageJob.id == root.id).cte('revision_tree', recursive=True)
+            tree = tree.union(select(ImageJob.id).join(tree, ImageJob.parent_job_id == tree.c.id)
+                .where(ImageJob.owner_id == root.owner_id))
+            rows = list(session.scalars(select(ImageJob).where(ImageJob.id.in_(select(tree.c.id)),
+                ImageJob.deleted_at.is_(None)).order_by(ImageJob.created_at.desc(), ImageJob.id.desc()).limit(101)))
+            items = [view(row) for row in reversed(rows[:100]) if row.id != root.id]
+            return {'items': [view(root), *items], 'has_more': len(rows) > 100}
 
     @router.get('/{job_id}/versions')
     def versions(job_id: UUID):

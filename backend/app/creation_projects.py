@@ -23,6 +23,7 @@ from app.image_provider import GenerationError, MAX_IMAGE
 from app.image_sizes import ImageSize
 from app.visual_styles import VisualStyle, PRESETS, STYLE_VERSION, snapshot_style, layout_warnings
 from app.learning_feedback import LearningSettings
+from app.image_purpose import project_image_type, main_shot_ids, has_image_copy, main_prompt_has_copy
 
 STAGES = ('analysis', 'brief', 'prompts')
 LOCK = RLock()
@@ -71,6 +72,8 @@ class StageInput(RevisionInput):
     instruction: str = Field(default='', max_length=12000)
     planning_model: str | None = Field(default=None, max_length=200)
     skill: dict | None = None
+    brief_mode: Literal['optimize', 'replan', 'directed'] | None = None
+    planning_direction: str = Field(default='', max_length=2000)
 
 
 class Analysis(BaseModel):
@@ -94,6 +97,7 @@ class Shot(BaseModel):
 
 class Brief(BaseModel):
     art_direction: str = Field(default='', max_length=5000)
+    planning_summary: str = Field(default='', max_length=4000)
     shots: list[Shot] = Field(min_length=1, max_length=16)
 
 
@@ -164,7 +168,7 @@ class ImportProductInput(BaseModel):
 
 def load_project(session, identifier, owner, revision=None, shared_product=False):
     row = session.get(CreationProject, str(identifier), with_for_update=True)
-    if row is None or row.owner_id != owner and not (shared_product and row.kind == 'product' and principal.get()):
+    if row is None or row.owner_id != owner:
         raise HTTPException(404, '创作任务不存在。')
     if revision is not None and row.revision != revision:
         raise HTTPException(409, '任务已更新，请重新读取后再操作。')
@@ -224,6 +228,11 @@ def validate_document(stage, content, session, data, project_id):
             brief = json.loads(active_document(session, data, 'brief', True).content)
             shots = {item['id']: item for item in brief['shots']}
             if set(ids) != set(shots): raise HTTPException(422, '提示词需与已确认图需逐张对应。')
+        main_ids = main_shot_ids(data, value if stage == 'brief' else brief)
+        if stage == 'brief' and any(entry['id'] in main_ids and has_image_copy(entry['copy']) for entry in entries):
+            raise HTTPException(422, '商品套图主图仅展示完整产品，不添加标题、卖点或其他文案；请清空主图的成品文案。附图和 A+ 可保留文案。')
+        if stage == 'prompts' and any(entry['shot_id'] in main_ids and main_prompt_has_copy(entry['prompt']) for entry in entries):
+            raise HTTPException(422, '商品套图主图提示词包含新增文字要求，请删除标题、卖点、徽章及广告字后重新确认。')
     return value
 
 
@@ -243,6 +252,7 @@ def material_view(row):
 
 
 def project_view(session, row, detail=True):
+    from app.image_batches import visible_batches
     data = json.loads(row.content)
     docs = list(session.scalars(select(CreationDocument).where(CreationDocument.project_id == row.id).order_by(CreationDocument.created_at))) if detail else []
     executions = list(session.scalars(select(CreationExecution).where(CreationExecution.project_id == row.id).order_by(CreationExecution.created_at)))
@@ -257,7 +267,7 @@ def project_view(session, row, detail=True):
         'created_at': row.created_at, 'updated_at': row.updated_at, 'busy': running,
         'settings': {key: data.get(key, '') for key in ('goal', 'style', 'image_count', 'planning_model', 'image_model', 'market', 'language', 'audience', 'selected_selling_points', 'sku')},
         'skill': data.get('skill'), 'messages': data.get('messages', []) if detail else [],
-        'batches': data.get('batches', [])}
+        'batches': visible_batches(data.get('batches', []))}
     result['analysis_confirmed'] = bool(data.get('analysis_confirmed'))
     if principal.get(): result['can_edit'] = row.owner_id == principal.get()['id']
     result['source'] = data.get('source')
@@ -265,6 +275,7 @@ def project_view(session, row, detail=True):
     result['drawing_experience'] = data.get('drawing_experience', {})
     result['mobile_source'] = data.get('mobile_source')
     result['case_reference'] = data.get('case_reference')
+    result['team_source'] = data.get('team_source')
     result['settings']['visual_style'] = data.get('visual_style')
     result['settings']['learning'] = data.get('learning') or LearningSettings().model_dump(mode='json')
     result['visual_style_snapshot'] = data.get('visual_style_snapshot')
@@ -310,7 +321,7 @@ def build_creation_router(store):
     def projects(request: Request, kind: Literal['product', 'plan', 'legacy'] | None = None, ready: bool = False):
         require_db()
         with Session(store.engine) as session:
-            query = select(CreationProject).where((CreationProject.owner_id == request.state.image_owner) | ((CreationProject.kind == 'product') if principal.get() else False))
+            query = select(CreationProject).where(CreationProject.owner_id == request.state.image_owner)
             if kind: query = query.where(CreationProject.kind == kind)
             rows = [project_view(session, row, False) for row in session.scalars(query.order_by(CreationProject.updated_at.desc()).limit(100))]
             return [row for row in rows if not ready or row['analysis_confirmed']] if kind == 'product' else rows
@@ -415,11 +426,14 @@ def build_creation_router(store):
             check_idle(session, row.id)
             if row.kind == 'plan' and value.goal != data['goal']:
                 invalidate(data, 'brief')
-            if row.kind != 'product' and (value.planning_model != data['planning_model'] or value.skill != data['skill']):
+            bind_copy=bool(data.get('team_source') and not data.get('planning_model'))
+            if row.kind != 'product' and not bind_copy and (value.planning_model != data['planning_model'] or value.skill != data['skill']):
                 raise HTTPException(409, '已建立任务固定策划模型和技能范围；请新建任务切换。')
             current = store.get(request.state.image_owner)
             if value.planning_model and (not current or value.planning_model not in current['model_names']): raise HTTPException(422, '策划模型未保存。')
             if value.image_model and (not current or value.image_model not in current['model_names']): raise HTTPException(422, '生图模型未保存。')
+            if bind_copy:
+                data['skill_snapshot']=snapshot_for(store.engine,store.directory,request.state.image_owner,data['goal'],data['skill'])
             if value.goal != data['goal'] or value.image_count != data['image_count']: invalidate(data, 'analysis' if value.goal != data['goal'] and row.kind != 'plan' else 'brief')
             elif value.style != data['style']: invalidate(data, 'brief')
             selected_style = value.visual_style.model_dump() if value.visual_style else None
@@ -529,17 +543,29 @@ def build_creation_router(store):
 
     def enqueue(request, identifier, stage, value):
         require_db()
+        if stage != 'brief' and (getattr(value,'brief_mode',None) or getattr(value,'planning_direction','')):
+            raise HTTPException(422,'策划方式和策划方向仅适用于整套图需阶段。')
         with LOCK, Session(store.engine) as session, session.begin():
             row, data = load_project(session, identifier, request.state.image_owner)
             allow_stage(row, stage)
             prior = session.get(CreationExecution, str(value.request_id))
             if prior:
                 if prior.project_id != row.id or prior.stage != stage: raise HTTPException(409, '提交标识已被使用。')
+                if stage=='brief':
+                    previous_request=json.loads(prior.input)
+                    previous_mode=previous_request.get('content_planning',{}).get('mode')
+                    if (value.brief_mode and previous_mode!=value.brief_mode or
+                        previous_request.get('content_planning',{}).get('direction','')!=value.planning_direction.strip() or
+                        previous_request.get('instruction','')!=value.instruction):
+                        raise HTTPException(409,'此提交标识对应另一轮策划要求，请刷新后重新提交。')
                 return project_view(session, row)
             if row.revision != value.revision: raise HTTPException(409, '任务已更新，请刷新。')
             check_idle(session, row.id)
             current = store.get(request.state.image_owner)
             if not current or not current['has_api_key']: raise HTTPException(409, '请先在模型配置中填写 API Key。')
+            if data.get('team_source') and not data.get('planning_model'):
+                data['planning_model']=value.planning_model or current.get('planning_model_name','')
+                if data['planning_model'] not in current['model_names']: raise HTTPException(422,'请先为此共享副本选择自己的策划模型。')
             if stage == 'analysis' and row.kind == 'product':
                 data['planning_model'] = value.planning_model or data.get('planning_model') or current.get('planning_model_name', '')
                 if data['planning_model'] not in current['model_names']: raise HTTPException(422, '请在分析设置或模型配置中选择策划模型。')
@@ -563,7 +589,12 @@ def build_creation_router(store):
                 'current_draft': json.loads(active_document(session, data, stage).content) if stage in STAGES and data.get('active', {}).get(stage) else None,
                 'source_documents': dict(data.get('active', {}))}
             payload['conversation'] = data.get('messages', [])[-12:]
+            if stage=='brief':
+                from app.brief_planning import prepare_context
+                prepare_context(session,row,payload,value.brief_mode,value.planning_direction)
             payload['settings']['visual_style'] = data.get('visual_style_snapshot')
+            payload['settings']['learning'] = data.get('learning', {})
+            payload['settings']['image_type'] = project_image_type(data)
             payload['settings'].update({key: data.get(key, '') for key in ('market', 'language', 'audience', 'selected_selling_points')})
             payload['template'] = data.get('template')
             if data.get('case_reference'):
@@ -575,12 +606,18 @@ def build_creation_router(store):
                 data.setdefault('drawing_experience', {})[stage] = matching_experience(session, row.source_product_id, context, request.state.image_owner)
             payload['drawing_experience'] = data.get('drawing_experience', {})
             if stage == 'images':
+                validate_document('brief', previous['brief'], session, data, row.id)
+                validate_document('prompts', previous['prompts'], session, data, row.id)
                 ids = value.shot_ids
                 valid = {item['shot_id'] for item in previous['prompts']['prompts']}
                 if len(ids) != len(set(ids)) or set(ids) - valid: raise HTTPException(422, '请选择已确认提示词对应的图片。')
                 payload['shot_ids'] = ids
             session.add(CreationExecution(id=str(value.request_id), project_id=row.id, stage=stage, status='queued', input=json.dumps(payload, ensure_ascii=False), output='{}', error='', created_at=now(), updated_at=now()))
-            data['messages'].append({'role': 'user', 'stage': stage, 'content': value.instruction or ('生成所选图片' if stage == 'images' else '开始本阶段分析与编写'), 'created_at': now()})
+            message=value.instruction or ('生成所选图片' if stage == 'images' else '开始本阶段分析与编写')
+            if stage=='brief':
+                context=payload['content_planning']
+                message=context['label']+(' · '+context['direction'] if context['direction'] else '')+'\n'+message
+            data['messages'].append({'role': 'user', 'stage': stage, 'content': message, 'created_at': now()})
             touch(row, data); session.flush()
             return project_view(session, row)
 
@@ -604,8 +641,11 @@ PDF 的文字页可读取文本；结构图、表格、扫描页需查看实际�
 analysis：结合资料提炼 facts、selling_points、questions，不生成图需或图片。
 brief：只依据已确认分析，按目标数量安排 shots，每张提供独立 id、name、objective、selling_point、content、layout、copy、notes、size、reference_ids。
 视觉风格：settings.visual_style 是已锁定版本的视觉表达规范，不能替代实际技能读取。brief 的 art_direction 明确主风格、选择理由、字体层级、配色与整套不变项；每张 layout 写明主体位置/占比、景别、视觉动线、文字位置与层级，notes 说明与相邻图的变化。按选定变化程度安排整套节奏，不机械套同一卡片。用户补充风格与参考图只能控制视觉，不能新增产品事实。
-项目默认：A+ 采用 Premium A+ 桌面端，未明确指定其他模块或手机端时，逐张 size 为 1464x600。首张是有场景、有设计感的产品英雄图，不自动安排白底；只有用户明确要求白底或指定白底上架槽位时才采用白底。用户明确选择的尺寸和风格优先于默认值。
+先区分图型：settings.image_type 或本方案明确选择的图型优先；未指定时根据本次目标区分 Listing 商品套图、A+、细节图。不能因都叫“首图/主图/英雄图”就混用规范；未能区分时先在图需中说明判断依据。
+Listing 商品套图：首张主图只用于完整展示同一可售 SKU，无新增文字、标题、副标题、卖点、图标、徽章、水印、边框、装饰信息模块、人物或非售卖道具；copy 为空。保留参考图上真实已有的产品标识，不抹掉或重写；不能把整套字体、文字密度或杂志风格强加到主图。主图背景遵从用户已确认的非白底或场景要求；未指定时依技能和目标槽位处理，不把无字要求误解成强制白底。附图才使用已确认的文案、图形和差异化排版。
+A+：默认 Premium A+ 桌面端，未明确指定其他模块或手机端时，逐张 size 为 1464x600；首张可为带标题文案的场景英雄图，不自动安排白底。1464x600 和 A+ 文字规范只适用于 A+，不扩展到 Listing。用户明确选择的尺寸和背景优先。
 prompts：严格对照已确认图需逐张编写完整 prompt，shot_id 一致，融入用户补充的风格排版。只输出 shot_id 和 prompt；参考图由程序固定继承已确认图需，不输出或修改 reference_ids，也不能在提示词中要求新增或替换参考素材。
+Listing 主图提示词明确写入完整展示商品、无新增文案/图形装饰；不使用附图/A+的 Exact copy 和 Typography 成品套版。若旧主图图需含广告字，应先修订图需并重新确认，不能把冲突带入生图。A+ 和附图按各自职责保留准确文案。
 参考图 ID 只能从本任务上传图片中选择；风格参考不能当成产品事实。没有资料支持的参数不要编造。
 技能中的接口配置、模型和参数仅作示例；以网站选择为准。不得执行脚本或声称已安装依赖、配置环境、生成图片。
 缺失信息可以在分析的 questions 中提出；后续阶段遵守用户确认的事实和取舍。所有图片调用由确认后的独立阶段执行。'''
@@ -625,8 +665,14 @@ def run_planning(store, execution_id, project_id, payload, stage):
         'stage': stage, 'template': payload.get('template'), 'output_schema': (PromptTexts if stage == 'prompts' else SCHEMAS[stage]).model_json_schema(),
         'product_drawing_experience': payload.get('drawing_experience', {}).get(stage, []),
         'experience_policy': '这些是人工确认的历史作图建议，不是产品事实。只用于本次适用场景，不能覆盖已确认事实、图需和本轮明确要求。'}
+    brief['image_policy'] = {'image_type': project_image_type(payload['settings']),
+        'main_shot_ids': sorted(main_shot_ids(payload['settings'], payload['previous'].get('brief', {}))),
+        'listing_first_shot': 'product-only; no added copy or graphic overlays; preserve confirmed background',
+        'a_plus': 'copy-bearing modules; desktop defaults apply only to A+'}
+    if stage=='brief': brief['content_planning']=payload.get('content_planning')
+    from app.brief_planning import PLANNING_INSTRUCTIONS
     try:
-        reply, trace = plan_with_skills(store.engine, store.directory, directory, payload['skill_snapshot'], INSTRUCTIONS, brief,
+        reply, trace = plan_with_skills(store.engine, store.directory, directory, payload['skill_snapshot'], INSTRUCTIONS+(PLANNING_INSTRUCTIONS if stage=='brief' else ''), brief,
             lambda messages, bound_tools: _chat(profile['base_url'], key, profile['model'], messages, bound_tools, timeout=300, parameters=profile['parameters']), extra_tools=tools)
         value = reply.strip()
         if value.startswith('```'): value = value.split('\n', 1)[-1].rsplit('```', 1)[0]
@@ -664,10 +710,13 @@ def submit_images(store, project_id, execution_id, owner, payload):
     material_map = {item['id']: item for item in payload['materials']}
     jobs = []
     base_parameters = dict(profile['parameters'])
+    main_ids = main_shot_ids(payload['settings'], payload['previous']['brief'])
     for index, shot_id in enumerate(payload['shot_ids']):
         item, shot = prompts[shot_id], shots[shot_id]
         refs = [material_path(store.directory, project_id, identifier).read_bytes() for identifier in item['reference_ids']]
         profile['parameters'] = dict(base_parameters)
+        profile['image_type'] = project_image_type(payload['settings'])
+        profile['shot_role'] = 'main-image' if shot_id in main_ids else 'a-plus' if profile['image_type'] == 'a_plus' else 'supporting-image'
         if shot['size'] != 'default': profile['parameters']['size'] = shot['size']
         profile['reference_manifest'] = [{'material_id': identifier, 'name': material_map[identifier]['name'], 'role': material_map[identifier]['kind'], 'sha256': material_map[identifier]['digest']} for identifier in item['reference_ids']]
         request_id = str(uuid5(UUID(execution_id), shot_id))
@@ -713,6 +762,9 @@ def process_creation_one(store, planner=None):
             execution = session.get(CreationExecution, identifier)
             if stage != 'images':
                 result = validate_document(stage, result, session, data, project_id)
+                if stage=='brief':
+                    from app.brief_planning import review_plan
+                    trace['brief_planning']=review_plan(payload,result)
                 document = save_document(session, project, data, stage, result)
                 trace['document_id'] = document.id
             else:

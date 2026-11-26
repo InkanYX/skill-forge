@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import TaskCancel from './TaskCancel';
 import SystemStatus from './SystemStatus';
 import WorkflowOverview from './WorkflowOverview';
+import ResumeCreationCard from './ResumeCreationCard';
 
 interface JobSummary { id: string; title: string; sku: string; model_name: string; status: string; message: string; brief: string; created_at: string; image_url: string | null; set_id: string | null; set_name: string }
 interface Overview {
@@ -32,7 +33,8 @@ export default function Workspace() {
     void load(); return () => { active = false; window.clearTimeout(timer); controller?.abort(); };
   }, [attempt]);
   const stats = [{ key: 'queued', label: '排队中', hint: '尚未开始，可取消' }, { key: 'running', label: '生成中', hint: '查看当前制作进度' }, { key: 'succeeded', label: '累计完成', hint: '查看与导出图片' }, { key: 'unknown', label: '结果待确认', hint: '先核对服务商记录' }];
-  return <section className="workspace-home"><div className="page-heading"><div><p className="eyebrow">YOUR CREATIVE WORKSPACE</p><h1>我的工作台</h1><p className="subtitle">从产品素材开始制作，让有效的方法和满意的作品留得下来。</p></div><div className="workspace-shortcuts"><a className="button-primary" href="#/products?new=1">新建产品</a><a className="button-secondary" href="#/studio">直接生图</a></div></div>
+  return <section className="workspace-home"><div className="workspace-hero"><div className="workspace-hero-copy"><p className="eyebrow">YOUR CREATIVE WORKSPACE</p><h1>我的工作台<span>让产品价值，被看见。</span></h1><p className="subtitle">从一个想法，到一组好作品。<br />在这里连接产品、创意和团队的经验。</p><div className="workspace-shortcuts"><a className="button-primary" href="#/products?new=1"><span aria-hidden="true">＋</span> 新建产品</a><a className="button-secondary" href="#/studio">进入图片创作 <span aria-hidden="true">↗</span></a></div></div><div className="workspace-hero-art" aria-hidden="true"><div className="hero-orbit" /><div className="hero-art-sheet sheet-back"><span>EXPLORE</span><i /></div><div className="hero-art-sheet sheet-front"><div className="hero-art-scene"><i /><b /><em /></div><span>IDEAS INTO IMAGES <b>↗</b></span></div><span className="hero-art-caption">PRODUCT / STORY / DESIGN</span></div></div>
+    <ResumeCreationCard />
     <WorkflowOverview />
     <div className="workspace-refresh"><p role="status">{data ? `北京时间 ${data.today.date} · 今日提交 ${data.today.submitted} 项，完成 ${data.today.completed} 张` : loading ? '正在读取工作台…' : '工作台数据暂不可用'}</p><button type="button" className="button-secondary" disabled={loading} onClick={() => setAttempt(value => value + 1)}>{loading ? '读取中…' : '刷新数据'}</button></div>
     {error && <p className="feedback feedback-error" role="alert">{error}{data ? ' 当前显示上次成功读取的数据。' : ' 请展开底部“服务状态”检查连接。'}</p>}{notice && <p className="feedback feedback-success" role="status">{notice}</p>}

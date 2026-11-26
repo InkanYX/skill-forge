@@ -13,6 +13,14 @@ export interface ImageRecord {
     drawing_experience?: Record<string, DrawingExperience[]>;
     skill_workflow?: {primary: {name: string; version: string; version_id: string}; companions: {name: string; version: string}[]; purpose: string};
   }; execution_result?: {
+    revision_analysis?: {stage:string;source_job_id:string;user_instruction:string;text_model?:string;vision_model?:string;
+      error?:string;visual_observations?:string;prompt_checks?:{severity:string;message:string}[];
+      edit_reference?:{source_job_id:string;available:boolean;role:string};
+      edit_reference_reads?:{crop:number[]|null;question:string;observation:string}[];
+      materials?:{id:string;name:string;pages:number}[];
+      material_reads?:{material_id:string;name:string;page:number;method:string;observation?:string}[];
+      intent?:{user_issue:string;requested_changes:string[];preserve:string[]};
+      plan?:{user_issue:string;observed_issues:string[];correction_steps:string[];preserve:string[];uncertainties:string[];prompt:string}};
     attempts?: {attempt:number;status:string;at:string;diagnostic?:ProviderDiagnostic;retryable?:boolean}[];
     skill_execution?: {method: string; used_skills: {name: string; version: string; skill_id: string}[];
       files: {path: string; method?: string; chars?: number; error?: string}[]; reused_preparation?: boolean};

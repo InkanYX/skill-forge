@@ -39,8 +39,7 @@ def is_global(row: SkillPackage) -> bool:
 
 
 def can_view(row: SkillPackage, user) -> bool:
-    # Admins may inspect every package (read-only troubleshooting).
-    if user is None or user['role'] == 'admin':
+    if user is None:
         return True
     return is_global(row) or row.owner_id == user['id']
 
@@ -55,8 +54,8 @@ def can_activate(row: SkillPackage, user) -> bool:
 
 
 def scope_filter(user):
-    """Rows a user may see; admins and auth-disabled installs see everything."""
-    if user is None or user['role'] == 'admin':
+    """Built-in packages plus personal packages, for administrators too."""
+    if user is None:
         return None
     return or_(SkillPackage.source == 'builtin', SkillPackage.owner_id == user['id'],
                SkillPackage.owner_id.is_(None))

@@ -10,7 +10,9 @@ export interface Prompt { shot_id: string; prompt: string; reference_ids: string
 export interface VisualStyle { preset: string; variation: 'steady'|'balanced'|'rich'; density: 'low'|'medium'|'high'; palette: string }
 export interface VisualStyleSnapshot {version:string;selection:VisualStyle;name:string;rules:string;checks:string[]}
 export interface LearningSettings {enabled:boolean;category:string;image_type:'any'|'listing'|'a_plus'|'detail';device:'any'|'desktop'|'mobile';excluded_ids:string[]}
-export interface DocumentContent { facts?: string; selling_points?: string; questions?: string; art_direction?: string; shots?: Shot[]; prompts?: Prompt[] }
+export type BriefPlanningMode='optimize'|'replan'|'directed';
+export interface BriefPlanningReport {mode:BriefPlanningMode;label:string;direction:string;history_count:number;summary:string;protected_slots:number[];warnings:string[];method:string;comparisons:{project_id:string;project_title:string;document_id:string;version:number;same_slots:number[];compared_slots:number;same_slot_ratio:number;reused_theme_count:number}[]}
+export interface DocumentContent { facts?: string; selling_points?: string; questions?: string; art_direction?: string; planning_summary?:string; shots?: Shot[]; prompts?: Prompt[] }
 export interface ProjectDocument { id: string; version: number; content: DocumentContent; confirmed_at: string | null }
 export interface Project {
   id: string; title: string; revision: number; stage: Stage | 'images'; busy: boolean; created_at: string; updated_at: string;
@@ -21,14 +23,15 @@ export interface Project {
   layout_warnings?: string[];
   mobile_source?: {project_id:string; batch_id:string; job_ids:string[]} | null;
   case_reference?: {id:string;title:string;guidance:string;style:string} | null;
+  team_source?: {id:string;version:number;author_id:string;title:string}|null;
   source?: { product_id: string; title: string; document_id: string; version: number }; source_updated?: boolean;
   settings: { goal: string; style: string; visual_style?:VisualStyle|null; learning?:LearningSettings; image_count: number; planning_model: string; image_model: string; market: string; language: string; audience: string; selected_selling_points: string; sku?: string };
   skill: Record<string, unknown>; documents: Record<Stage, ProjectDocument | null>;
   materials: Material[]; images: ImageRecord[];
   messages: { role: string; stage: string; content: string; created_at: string }[];
-  executions: { id: string; stage: Stage | 'images'; status: string; error: string; created_at: string; updated_at: string; output: { diagnostic?: Record<string, unknown>; trace?: { used_skills?: { name: string }[]; materials?: { name: string; page: number; method: string }[]; files?: { path: string }[] } } }[];
+  executions: { id: string; stage: Stage | 'images'; status: string; error: string; created_at: string; updated_at: string; output: { diagnostic?: Record<string, unknown>; trace?: { document_id?:string;brief_planning?:BriefPlanningReport|null;used_skills?: { name: string }[]; materials?: { name: string; page: number; method: string }[]; files?: { path: string }[] } } }[];
   history: (ProjectDocument & { stage: Stage; created_at: string })[];
-  batches: { execution_id: string; job_ids: string[]; created_at: string }[];
+  batches: { execution_id: string; job_ids: string[]; created_at: string; version_number?: number }[];
 }
 export interface PlanTemplate { id: string; name: string; description: string; style: string; shots: {name: string; objective: string; layout: string}[] }
 export async function projectRequest<T>(path = '', method = 'GET', body?: unknown, signal?: AbortSignal): Promise<T> {

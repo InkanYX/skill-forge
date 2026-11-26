@@ -19,8 +19,9 @@ def fail(*args):
     raise GenerationError('普通失败', diagnostic={'http_status': 500})
 
 
-def retry(client, identifier, request_id=None):
-    return client.post(f'/api/image-jobs/{identifier}/retry', files={'request_id': (None, request_id or str(uuid4()))})
+def retry(client, identifier, request_id=None, provider_checked=False):
+    return client.post(f'/api/image-jobs/{identifier}/retry', files={
+        'request_id': (None, request_id or str(uuid4())), 'provider_checked': (None, str(provider_checked).lower())})
 
 
 def test_retry_new_record_exact_edit_inputs_idempotency_and_project_version(project_setup):
@@ -42,15 +43,46 @@ def test_retry_new_record_exact_edit_inputs_idempotency_and_project_version(proj
     for name in ('reference.png', 'reference-2.png'):
         assert artifact(directory, created['id'], name).read_bytes() == artifact(directory, first['id'], name).read_bytes()
     current = client.get('/api/creation-projects/' + source['id']).json()
-    assert current['batches'][0] == source['batches'][0]
-    assert current['batches'][-1]['job_ids'] == [created['id']]
-    assert current['batches'][-1]['retry_source_job_id'] == first['id']
+    assert len(current['batches']) == len(source['batches']) == 1
+    batch = current['batches'][0]
+    assert batch['execution_id'] == source['batches'][0]['execution_id']
+    assert batch['created_at'] == source['batches'][0]['created_at']
+    assert batch['shot_ids'] == source['batches'][0]['shot_ids']
+    assert batch['job_ids'] == [created['id'], source['batches'][0]['job_ids'][1]]
+    assert batch['retry_history'] == {created['id']: [first['id']]}
+    assert created['execution_profile']['creation_execution_id'] == batch['execution_id']
+    assert client.get('/api/image-jobs/tasks/' + source['id']).json()['batches'] == current['batches']
     assert process_standard_one(store, executor)
     assert process_standard_one(store, executor, preparer=lambda *args: pytest.fail('must reuse final prompt'))
     assert retry(client, first['id'], request_id).json()['status'] == 'succeeded'
     assert client.get('/api/image-jobs/' + first['id']).json()['execution_result'] == original['execution_result']
     assert KEY not in json.dumps(created)
     assert not process_standard_one(store, executor)
+    assert retry(client, first['id']).status_code == 409  # Old failures cannot replace a successful retry.
+    current = client.get('/api/creation-projects/' + source['id']).json()
+    mobile = client.post('/api/creation-projects/' + source['id'] + '/mobile', json={
+        'revision': current['revision'], 'request_id': str(uuid4()), 'batch_id': batch['execution_id'],
+        'image_model': 'image-editor'})
+    assert mobile.status_code == 202, mobile.text
+    assert mobile.json()['mobile_source']['job_ids'] == batch['job_ids']
+
+
+def test_chained_and_multiple_shot_retries_preserve_slots(project_setup):
+    client, store, *_ = project_setup
+    source = submitted(project_setup)
+    originals = source['batches'][0]['job_ids']
+    assert process_standard_one(store, fail)
+    assert process_standard_one(store, fail)
+    first = retry(client, originals[0]).json()['id']
+    second = retry(client, originals[1]).json()['id']
+    assert process_standard_one(store, fail)
+    third = retry(client, first).json()['id']
+    project = client.get('/api/creation-projects/' + source['id']).json()
+    assert len(project['batches']) == 1
+    assert project['batches'][0]['job_ids'] == [third, second]
+    assert project['batches'][0]['retry_history'] == {third: [originals[0], first], second: [originals[1]]}
+    assert project['batches'][0]['shot_ids'] == source['batches'][0]['shot_ids']
+    assert retry(client, originals[0]).status_code == 409
 
 
 @pytest.mark.parametrize('state', ['queued', 'running', 'unknown', 'succeeded'])
@@ -61,6 +93,44 @@ def test_nonfailed_state_cannot_be_retried(project_setup, state):
     with Session(engine) as session, session.begin():
         session.get(ImageJob, first).status = state
     assert retry(client, first).status_code == 409
+    if state != 'unknown':
+        assert retry(client, first, provider_checked=True).status_code == 409
+
+
+def test_unknown_retry_requires_acknowledgement_and_preserves_original(project_setup):
+    client, store, engine, directory, _ = project_setup
+    source = submitted(project_setup)
+    first = source['images'][0]['id']
+    with Session(engine) as session, session.begin():
+        session.get(ImageJob, first).status = 'unknown'
+    original = client.get('/api/image-jobs/' + first).json()
+    assert retry(client, first).status_code == 409
+    request_id = str(uuid4())
+    response = retry(client, first, request_id, provider_checked=True)
+    assert response.status_code == 202, response.text
+    created = response.json()
+    assert created['id'] != first and created['status'] == 'queued'
+    for key in ('prompt', 'model_name', 'mode', 'size', 'config_id'):
+        assert created[key] == original[key]
+    audit = created['execution_profile']['retry_confirmation']
+    assert audit['provider_checked'] is True and audit['source_job_id'] == first
+    assert audit['source_status'] == 'unknown' and audit['acknowledged_at']
+    for name in ('reference.png', 'reference-2.png'):
+        assert artifact(directory, created['id'], name).read_bytes() == artifact(directory, first, name).read_bytes()
+    assert client.get('/api/image-jobs/' + first).json() == original
+    assert retry(client, first, request_id).json()['id'] == created['id']
+    assert retry(client, first, provider_checked=True).json()['id'] == created['id']
+
+
+def test_unknown_acknowledgement_does_not_bypass_existing_output(project_setup):
+    client, store, engine, directory, _ = project_setup
+    first = submitted(project_setup)['images'][0]['id']
+    with Session(engine) as session, session.begin():
+        session.get(ImageJob, first).status = 'unknown'
+    artifact(directory, first, 'result.png').write_bytes(b'already returned')
+    assert retry(client, first, provider_checked=True).status_code == 409
+    with Session(engine) as session:
+        assert len(list(session.scalars(select(ImageJob)))) == 2
 
 
 def test_retry_missing_reference_and_existing_output_block_duplicates(project_setup):
@@ -125,7 +195,7 @@ def test_real_skill_batch_each_image_can_succeed_on_third_attempt(workflow):
         return executor(directory, profile, key, prompt, reference)
     assert process_standard_one(store, third_time)
     assert process_standard_one(store, third_time)
-    assert len(calls) == 6
+    assert len(calls) == 6, [client.get('/api/image-jobs/' + image['id']).json()['message'] for image in images]
     for image in images:
         result = client.get('/api/image-jobs/' + image['id']).json()
         assert result['status'] == 'succeeded'
@@ -143,6 +213,7 @@ def test_pending_unknown_retry_prevents_another_paid_submission(project_setup):
     with Session(engine) as session, session.begin():
         session.get(ImageJob, created['id']).status = 'unknown'
     assert retry(client, first).status_code == 409
+    assert retry(client, first, provider_checked=True).status_code == 409
     with Session(engine) as session:
         assert len(list(session.scalars(select(ImageJob)))) == 3
 

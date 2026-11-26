@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.database import ImageJob, CreativeCase, AgentRun, ImageConfiguration, CreationProject
 from app.creation_conversations import conversation_id, conversation_key, latest_turns
+from app.image_batches import visible_batches
 
 STATES = ('queued', 'running', 'succeeded', 'failed', 'unknown', 'cancelled')
 
@@ -83,7 +84,7 @@ def build_task_router(engine, job_view):
         rows = task_rows(session, identifier)
         cases = dict(session.execute(select(CreativeCase.job_id, CreativeCase.id).where(CreativeCase.job_id.in_([row.id for row in rows]))).all())
         project = session.get(CreationProject, identifier)
-        return {**summary(session, identifier, rows), **({'batches': json.loads(project.content).get('batches', [])} if project else {}),
+        return {**summary(session, identifier, rows), **({'batches': visible_batches(json.loads(project.content).get('batches', []))} if project else {}),
                 'items': [{**job_view(row).model_dump(), 'case_id': cases.get(row.id), 'diagnostic': json.loads(row.provider_diagnostic or '{}') or None} for row in rows]}
 
     @router.get('')

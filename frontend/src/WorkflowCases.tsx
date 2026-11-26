@@ -16,11 +16,11 @@ export default function WorkflowCases({route}:{route:string}) {
   async function reuse(){if(!selected||!product)return;setBusy(true);setError('');requestId.current??=crypto.randomUUID();
     try{const plan=await caseRequest<Project>('/'+selected.id+'/reuse','POST',{request_id:requestId.current,title:(selected.title+' · 参考方案').slice(0,120),product_id:product});window.location.hash='#/planning?project='+plan.id;}
     catch(err){setError(err instanceof Error?err.message:'复用失败');}finally{setBusy(false);}}
-  return <section><div className="section-heading"><div><p className="eyebrow">WORKFLOW CASES</p><h2>完整案例</h2></div>{selected&&<a className="button-secondary" href="#/showcases">返回案例库</a>}</div>
+  return <section><div className="section-heading"><div><p className="eyebrow">WORKFLOW CASES</p><h2>完整案例</h2></div>{selected&&<a className="button-secondary" href="#/showcases">返回案例库</a>}</div><p className="settings-intro">团队共享案例库：所有成员可查看、下载完整流程，并为自己的产品创建参考方案。</p>
     {error&&<p className="feedback feedback-error" role="alert">{error}</p>}
     {selected?<>
       <section className="guided-card"><h3>{selected.title}</h3><p className="workflow-preserve-lines">{selected.summary||'完整制作流程快照'}</p><small>{formatTaskTime(selected.created_at)} · {selected.image_count} 张图片 · {selected.material_count} 份资料</small>
-        <div className="guided-actions"><a className="button-primary" href={'/api/workflow-cases/'+selected.id+'/download'}>下载完整案例ZIP</a><a href={'#/studio?project='+selected.project_id}>查看来源方案</a></div>
+        <p>团队共享案例 · 作者：{selected.author?.name||'原作者'}</p><div className="guided-actions"><a className="button-primary" href={'/api/workflow-cases/'+selected.id+'/download'}>下载完整案例ZIP</a>{selected.can_edit&&<a href={'#/studio?project='+selected.project_id}>查看来源方案</a>}</div>
         <div className="delivery-option"><h4>参考此案例，为目标产品策划</h4><p>借鉴风格、版式和归档经验，带入最多3张案例成图作风格参考；产品事实取自你选择的已确认分析。确认图需后，选用的参考图会随生图发送给你配置的服务商。</p>
           <label>目标产品<select value={product} onChange={e=>{setProduct(e.target.value);requestId.current=undefined;}}><option value="">选择已确认分析的产品</option>{products.map(p=><option key={p.id} value={p.id}>{p.title}</option>)}</select></label><button type="button" className="button-secondary" disabled={busy||!product} onClick={()=>void reuse()}>{busy?'正在创建…':'以此案例创建新方案'}</button>
         </div>

@@ -2,7 +2,7 @@
 name: premium-product-image-workflow
 description: "Plan, generate, edit and review faithful ecommerce product images, complete Listing sets and Amazon A+ content. Includes evidence-backed copy, visual direction, scene templates and project resume. Use for 商品图、主图、套图、A+、手机端适配、换风格、局部修改、继续出图 and public competitor visual research. Not for PPC optimization or unrelated image art."
 metadata:
-  version: "2.5.2"
+  version: "2.5.3"
   required_references:
     - references/campaign-style.md
 ---
@@ -18,7 +18,7 @@ metadata:
 
 - 优先级：同一可售 SKU → 结构与比例 → 颜色/材质外观/包含物 → 构图 → 已确认卖点 → 光影 → 装饰。结构变体标记为改款，不冒充原 SKU。
 - A 级可见外观、已确认 B 级资料可以使用；按用户偏好主动从照片推测材质与可能性能，读 [照片推测卖点](references/photo-inferred-selling-points.md)，提出候选与展示方案，注明依据和置信度。推测与确认事实分开；不凭照片编造尺寸、材质牌号、性能等级、认证、包含物、安装时间或服务承诺。
-- 有商品参考图时优先编辑；首张默认是完整展现商品的场景英雄图，不因排在第一张就强制白底。用户明确指定白底上架主图时才采用纯白、无新增文字/道具。附图和 A+ 默认直接生成含逐字文案与排版的完整成品；用户明确要求底图或设计师交接时才切换，不静默改成后期叠字。
+- 有商品参考图时优先编辑。先区分 Listing 套图与 A+：商品套图首张主图只完整展示同一可售 SKU，无新增标题、卖点、文字、图标、徽章、水印、边框、人物或非售卖道具；保留产品本身真实已有标识。背景按确认图需，用户选择非白底/场景时不强制白底；白底上架槽位另按该槽位复核。主图不继承附图/A+的文案排版与装饰模块。附图和 A+ 默认直接生成含逐字文案与排版的完整成品，A+首张可为带文案的场景英雄图；用户明确要求底图或设计师交接时才切换，不静默改成后期叠字。
 - 一图一个主要购买主题，不等于只放一个零件或一句收益。用户要求内容丰富时，按 [内容充实与辅助视图](references/content-depth-and-supporting-visuals.md) 组合相关子卖点、局部证据、状态对照与图形；弱细节合并，避免大标题加单一零件撑一整张。
 - 生成、技术检查、人工视觉验收、导出分别记录。P0/P1 未关闭不可作为最终成品；自动工具不能认证 SKU、隐藏结构或当前平台政策。
 - 用户要求与已有项目选择优先。复用已知名称、平台、语言、供应商、上传范围和风格；只询问会实质改变结果的缺口。授权不扩展到无关素材、新接收方或新用途。

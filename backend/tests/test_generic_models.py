@@ -110,7 +110,7 @@ def test_reserved_options_and_external_paths_are_rejected(registry):
     assert calls==[]
 
 
-def test_image_only_model_can_create_and_edit_without_a_text_role(registry):
+def test_image_only_model_can_create_but_correction_requires_text_analysis(registry):
     client,store,directory,config,calls,behavior,native=registry
     from app.model_capabilities import evidence, save_evidence
     from app.database import ImageConfiguration
@@ -131,8 +131,10 @@ def test_image_only_model_can_create_and_edit_without_a_text_role(registry):
     assert edited.status_code==200,edited.text
     assert edited.json()['status']=='waiting_images'
     assert process_standard_one(store)
-    assert calls[-1].url.path.endswith('/images/edits')
-    assert all(not request.url.path.endswith('/chat/completions') for request in calls)
+    assert any(request.url.path.endswith('/chat/completions') for request in calls)
+    assert not any(request.url.path.endswith('/images/edits') for request in calls)
+    job=client.get('/api/image-jobs/'+edited.json()['images'][-1]['id']).json()
+    assert job['status']=='failed'
 
 
 def test_legacy_model_column_does_not_create_selectable_models(standard):

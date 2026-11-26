@@ -8,12 +8,16 @@ import ImageSizePicker from './ImageSizePicker';
 import TaskResultsPanel from './TaskResultsPanel';
 import { useCreationSkill } from './CreationSkillContext';
 import { projectRequest, type Project } from './creationProjectApi';
+import { useAuth } from './AuthGate';
+import { rememberCreation } from './resumeCreation';
 
 export default function ImageStudio({onDraftChange,onSubmittingChange}:{onDraftChange?:(dirty:boolean)=>void;onSubmittingChange?:(busy:boolean)=>void}={}){
+  const {user}=useAuth();
   const skill=useCreationSkill();const [models,setModels]=useState<ModelOption[]>([]);const [modelId,setModelId]=useState('');
   const [prompt,setPrompt]=useState('');const [size,setSize]=useState('default');const [count,setCount]=useState(1);
   const [reference,setReference]=useState<File>();const [preview,setPreview]=useState('');const input=useRef<HTMLInputElement>(null);
-  const [taskId,setTaskId]=useState('');const [busy,setBusy]=useState(false);const [error,setError]=useState('');const [reading,setReading]=useState(false);
+  const [taskId,setTaskId]=useState(()=>new URLSearchParams(window.location.hash.split('?')[1]).get('task')||'');const [busy,setBusy]=useState(false);const [error,setError]=useState('');const [reading,setReading]=useState(false);
+  useEffect(()=>{if(taskId)rememberCreation(user.id,'#/studio?task='+encodeURIComponent(taskId),'直接生图任务');},[taskId,user.id]);
   const [uncertain,setUncertain]=useState(false);const requestId=useRef<string|undefined>(undefined);const alive=useRef(true);
   // Old deep links can still reuse stored data, without a second management UI here.
   const [product,setProduct]=useState<Product>();const [template,setTemplate]=useState<CreativeTemplate>();

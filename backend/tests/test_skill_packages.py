@@ -285,7 +285,7 @@ def test_personal_packages_are_private_and_may_share_names(accounts):
     assert [item['name'] for item in alice.get('/api/skill-packages').json()] == ['shared-skill']
     assert [item['id'] for item in alice.get('/api/skill-packages').json()] == [alice_skill['id']]
     assert [item['id'] for item in bob.get('/api/skill-packages').json()] == [bob_skill['id']]
-    assert len(admin.get('/api/skill-packages').json()) == 2
+    assert admin.get('/api/skill-packages').json() == []
 
     # Members cannot see or use another member's package, including direct UUID access.
     assert bob.get(f"/api/skill-packages/{alice_skill['id']}").status_code == 404
@@ -293,11 +293,10 @@ def test_personal_packages_are_private_and_may_share_names(accounts):
     assert bob.get(f"/api/skill-packages/{alice_skill['id']}/versions/{alice_skill['version']['id']}/files").status_code == 404
     assert bob.post(f"/api/skill-packages/{alice_skill['id']}/versions/{alice_skill['version']['id']}/activate").status_code == 404
 
-    # Admin may inspect read-only, but only the owner may activate a personal version.
+    # Normal admin pages have the same personal isolation as member pages.
     detail = admin.get(f"/api/skill-packages/{bob_skill['id']}")
-    assert detail.status_code == 200
-    assert detail.json()['owner_id'] == bob_user['id'] and detail.json()['can_activate'] is False
-    assert admin.post(f"/api/skill-packages/{bob_skill['id']}/versions/{bob_skill['version']['id']}/activate").status_code == 403
+    assert detail.status_code == 404
+    assert admin.post(f"/api/skill-packages/{bob_skill['id']}/versions/{bob_skill['version']['id']}/activate").status_code == 404
 
     added, _ = import_skill(bob, 'shared-skill', version='1.1.0')
     activated = bob.post(f"/api/skill-packages/{bob_skill['id']}/versions/{added['version']['id']}/activate")

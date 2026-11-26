@@ -113,3 +113,15 @@ def test_revision_history_preserves_branches(setup):
         root_history = client.get(f'/api/image-jobs/{root.id}/versions').json()
         assert {item['id'] for item in root_history['children']} == {item['id'] for item in children}
         assert not root_history['has_more_children']
+        inline = client.get(f'/api/image-jobs/{root.id}/revisions').json()
+        assert inline['items'][0]['id'] == root.id
+        assert {item['id'] for item in inline['items']} == {root.id, children[0]['id'], children[1]['id'], grandchild['id']}
+        assert not inline['has_more']
+        assert KEY not in str(inline)
+        # A deleted intermediate image must not hide its surviving descendants.
+        with Session(engine) as session, session.begin():
+            session.get(ImageJob,children[0]['id']).deleted_at = 'removed'
+            session.get(ImageJob,children[1]['id']).owner_id = 'another-user'
+        inline = client.get(f'/api/image-jobs/{root.id}/revisions').json()
+        assert {item['id'] for item in inline['items']} == {root.id, grandchild['id']}
+        assert client.get(f'/api/image-jobs/{uuid4()}/revisions').status_code == 404

@@ -27,8 +27,12 @@ def workflow(standard, monkeypatch):
 
     def chat(url, key, model, messages, *args, **kwargs):
         assert model == 'planning-model' and key == KEY
-        brief = next(json.loads(item['content'])['requirements'] for item in messages
+        payload = next(json.loads(item['content']) for item in messages
                      if item['role'] == 'user' and isinstance(item['content'], str) and item['content'].startswith('{'))
+        if 'schema' in payload and ('revision_context' in payload or 'user_instruction' in payload):
+            return {'content':json.dumps({'status':'ready','user_issue':'只调整指定背景',
+                'requested_changes':['调整背景'],'preserve':['产品结构和颜色']})}
+        brief = payload['requirements']
         tool_messages = [item for item in messages if item['role'] == 'tool']
         if not tool_messages:
             wanted = 'amazon-a-plus' if 'A+' in brief else 'premium-product-image-workflow'
@@ -42,6 +46,11 @@ def workflow(standard, monkeypatch):
             return {'tool_calls': [{'id': 'reference', 'type': 'function', 'function': {'name': 'read_file',
                 'arguments': json.dumps({'file_path': original_root + '/' + path})}}]}
         captured['planning'].append(messages)
+        if payload.get('revision_context'):
+            return {'content':json.dumps({'status':'ready','user_issue':'只调整指定背景',
+                'requested_changes':['调整背景'],'preserve':['产品结构和颜色'],
+                'observed_issues':['背景需要调整'],'correction_steps':['只替换指定背景'],
+                'uncertainties':[],'prompt':'Edit only the requested background. Preserve the product structure and color.\nOutput: PNG.'})}
         return {'content': json.dumps({'status': 'ready', 'prompt': 'Task and selling objective: ' + brief
             + '\nReference roles: product identity reference.\nOutput: native PNG; preserve proportions.'})}
 
@@ -74,7 +83,7 @@ def test_every_image_has_pinned_skill_and_preparation_is_reused_but_review_is_pe
     images, values = submit(workflow, count=2, reference=png())
     first = images[0]
     skill = first['execution_profile']['skill_workflow']['primary']
-    assert skill['name'] == 'premium-product-image-workflow' and skill['version'] == '2.5.2'
+    assert skill['name'] == 'premium-product-image-workflow' and skill['version'] == '2.5.3'
     assert {item['task_id'] for item in images} == {first['task_id']}
     assert process_standard_one(store, fake_executor)
     assert process_standard_one(store, fake_executor)

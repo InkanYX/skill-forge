@@ -6,6 +6,8 @@ import { creativeRequest } from './creativeApi';
 import { listModelOptions as listConfigs, type ModelOption as ModelConfig } from './modelConfigApi';
 import RevisionTrail from './RevisionTrail';
 import { CreationSkillPicker, useCreationSkill } from './CreationSkillContext';
+import { useAuth } from './AuthGate';
+import { rememberCreation } from './resumeCreation';
 
 interface RevisionJob {
   execution_profile?: {skill_workflow?: {primary: {name: string; version: string}}};
@@ -13,6 +15,7 @@ interface RevisionJob {
   image_url: string | null; preview_url?: string | null; parent_job_id: string | null; product_snapshot: { sku?: string; name?: string };
 }
 export default function ImageRevision() {
+  const {user}=useAuth();
   const creationSkill = useCreationSkill();
   const sourceId = new URLSearchParams(window.location.hash.split('?')[1] || '').get('source') || '';
   const [source, setSource] = useState<RevisionJob>(); const [configs, setConfigs] = useState<ModelConfig[]>([]);
@@ -20,6 +23,7 @@ export default function ImageRevision() {
   const [loading, setLoading] = useState(true); const [attempt, setAttempt] = useState(0); const [sourceError, setSourceError] = useState(''); const [error, setError] = useState('');
   const [busy, setBusy] = useState(false); const [requestId, setRequestId] = useState(''); const [ambiguous, setAmbiguous] = useState(false);
   const [currentTaskId, setCurrentTaskId] = useState('');
+  useEffect(()=>{if(currentTaskId)rememberCreation(user.id,'#/studio?task='+encodeURIComponent(currentTaskId),'图片修改任务');},[currentTaskId,user.id]);
   const model = configs.find(item => item.id === configId);
   useEffect(() => {
     let active = true; setLoading(true); setSourceError('');
@@ -46,7 +50,7 @@ export default function ImageRevision() {
     finally { setBusy(false); }
   }
   function unlock() { if (window.confirm('请先核对生成记录。修改输入后再次提交会创建新任务，是否继续？')) { setAmbiguous(false); setRequestId(''); setError(''); } }
-  return <section><div className="section-heading"><div><p className="eyebrow">REFINE YOUR IMAGE</p><h2>继续修改</h2></div><a className="button-secondary" href="#/library">返回生成记录</a></div><p className="settings-intro">以选中的作品为参考，只填写这次想调整的内容。每次保存为新版本，原图始终保留。</p>
+  return <section><div className="section-heading"><div><p className="eyebrow">REFINE YOUR IMAGE</p><h2>继续修改</h2></div><a className="button-secondary" href="#/library">返回生成记录</a></div><p className="settings-intro">描述哪里不对、希望如何调整。文本模型先理解要求，视觉模型核对来源图片，再依据 Skill 整理局部编辑提示词并修改原图。分析记录与提示词可在结果中查看，每次另存新版本。</p>
     <CreationSkillPicker inherited={source?.execution_profile?.skill_workflow?.primary} />
     {loading && <p role="status">正在读取来源作品…</p>}{sourceError && <p className="feedback feedback-error" role="alert">{sourceError} {sourceId && <button className="button-secondary" onClick={() => setAttempt(value => value + 1)}>重新读取</button>}</p>}
     {!loading && !sourceError && source && <><div className="revision-layout"><section className="revision-source"><h3>来源作品</h3><a href={source.image_url!} target="_blank" rel="noreferrer"><img src={source.preview_url || source.image_url!} alt="本次修改的来源作品" /></a><p>{source.product_snapshot.sku ? `${source.product_snapshot.sku} · ${source.product_snapshot.name}` : '未关联产品资料'}</p><small>原模型：{source.model_name}。沿用来源作品保存的产品资料和模板记录。</small><details><summary>查看来源制作要求</summary><p className="case-prompt">{source.prompt}</p></details></section>
@@ -54,7 +58,7 @@ export default function ImageRevision() {
     <div className="form-field"><label htmlFor="revision-prompt">本次修改要求</label><textarea id="revision-prompt" required maxLength={8000} rows={6} value={prompt} onChange={e => setPrompt(e.target.value)} placeholder="例如：将背景换成现代庭院，调整为柔和的傍晚光线，保持产品结构、颜色和构图。" /><small>明确写出需要变化和需要保留的内容。</small></div>
     <div className="template-defaults"><div className="form-field"><label htmlFor="revision-count">生成新版本数量</label><select id="revision-count" value={count} onChange={e => setCount(Number(e.target.value))}>{Array.from({length:16},(_,i)=><option key={i+1} value={i+1}>{i+1} 张</option>)}</select></div><ImageSizePicker id="revision-size" value={size} onChange={setSize} /></div></fieldset>
     {model && !model.has_api_key && <p className="feedback feedback-warning">请先在<a href="#/settings">个人模型配置</a>填写并保存 API Key。</p>}
-    {error && <p className="feedback feedback-error" role="alert">{error}</p>}<div className="form-actions">{ambiguous && <button type="button" className="button-secondary" onClick={unlock}>核对后修改输入</button>}<button className="button-primary" disabled={busy || !model?.has_api_key || !model?.model_name.trim() || !prompt.trim()}>{busy ? '正在提交…' : ambiguous ? '重发相同提交' : `生成 ${count} 张新版本`}</button></div><p className="form-footnote">点击后会将来源图片和修改要求发送到所选服务商，每张独立消耗额度。不会覆盖原图，修改效果需人工检查。</p></form></div>
+    {error && <p className="feedback feedback-error" role="alert">{error}</p>}<div className="form-actions">{ambiguous && <button type="button" className="button-secondary" onClick={unlock}>核对后修改输入</button>}<button className="button-primary" disabled={busy || !model?.has_api_key || !model?.model_name.trim() || !prompt.trim()}>{busy ? '正在提交分析任务…' : ambiguous ? '重发相同提交' : `分析并修改 · ${count} 张新版本`}</button></div><p className="form-footnote">依次调用已配置的文本模型、视觉模型和图片编辑模型；分析失败或需要补充时不调用生图。来源图片作为实际编辑参考，每张另存新版本，原图保留；模型调用会消耗相应额度。</p></form></div>
     {currentTaskId && <section className="revision-results"><h3>本次修改结果</h3><TaskResultsPanel taskId={currentTaskId} /></section>}
     <RevisionTrail jobId={source.id} /></>}
   </section>;

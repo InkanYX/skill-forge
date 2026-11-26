@@ -7,6 +7,7 @@ import {
 import { imageConfigRequest, type ImageConfiguration } from './imageConfigApi';
 import { formatTaskTime } from './imageTaskApi';
 import { listPackages, type SkillPackage } from './skillPackageApi';
+import TaskResultsPanel from './TaskResultsPanel';
 
 function statusClass(run: AgentRun) {
   if (run.status === 'succeeded') return 'job-status job-succeeded';
@@ -212,7 +213,8 @@ export default function AgentStudio({ route = '', active = true, detailOnly = fa
       {(detail.summary || detail.error) && <p className={`feedback ${detail.status === 'succeeded' ? 'feedback-success' : 'feedback-warning'}`} role="status">{detail.summary || detail.error}</p>}
       {agentPending(detail) && <div className="form-actions"><button type="button" className="button-secondary cancel-button" disabled={busy} onClick={() => void cancel()}>取消任务</button></div>}
 
-      {images.length > 0 && <><h3 className="skill-subhead">图片版本</h3><div className="agent-images">
+      {detailOnly&&images.length>0&&<TaskResultsPanel taskId={detail.conversation_id} active={active}/>}
+      {!detailOnly&&images.length > 0 && <><h3 className="skill-subhead">图片版本</h3><div className="agent-images">
         {images.map(item => <figure key={item.id} className="agent-image">
           {item.status === 'succeeded' && item.preview_url ? <a href={item.image_url || '#'} target="_blank" rel="noreferrer"><img src={item.preview_url} alt={item.shot_name || item.id} loading="lazy" /></a> : <div className="artwork-placeholder"><span>{agentStatusLabels[item.status] || item.status}</span></div>}
           <figcaption><strong>{item.shot_name || item.id.slice(0, 8)}</strong><small>{agentStatusLabels[item.status] || item.status} · {item.mode === 'edit' ? '编辑' : '生成'}</small>{item.message && <small>{item.message}</small>}
@@ -237,8 +239,8 @@ export default function AgentStudio({ route = '', active = true, detailOnly = fa
         </div>
       </li>)}</ol>
 
-      {!isLatest && latest && <a href={`#/studio?mode=skill&run=${latest.id}`}>打开最新一轮继续修改</a>}
-      {!agentPending(detail) && isLatest && <div className="agent-rework">
+      {!detailOnly&&!isLatest && latest && <a href={`#/studio?mode=skill&run=${latest.id}`}>打开最新一轮继续修改</a>}
+      {!detailOnly&&!agentPending(detail) && isLatest && <div className="agent-rework">
         <h3 className="skill-subhead">继续对话与修改</h3>
         {available.length > 0 && <div className="form-field"><label htmlFor="agent-source">本轮修改来源</label><select id="agent-source" value={sourceId} onChange={event => setSourceId(event.target.value)}>{available.map((item, index) => <option key={item.id} value={item.id}>{index + 1}. {item.shot_name || item.id.slice(0, 8)} · {formatTaskTime(item.created_at)}</option>)}</select></div>}
         <div className="form-field"><label htmlFor="agent-rework">本轮要求</label><textarea id="agent-rework" rows={4} maxLength={4000} value={instruction} onChange={e => setInstruction(e.target.value)} placeholder="例如：保持四根立柱和连接结构，只调整背景与主体颜色。" /><small>本轮要求完整保存到同一创作任务，原图与历次结果保留。</small></div>

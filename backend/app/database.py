@@ -161,6 +161,21 @@ class WorkflowCase(OwnedRecord, Base):
     created_at: Mapped[str] = mapped_column(String(40))
 
 
+class TeamProjectShare(Base):
+    __tablename__ = 'team_project_shares'
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    project_id: Mapped[str] = mapped_column(String(36), unique=True, index=True)
+    owner_id: Mapped[str] = mapped_column(String(36), index=True)
+    title: Mapped[str] = mapped_column(String(120))
+    kind: Mapped[str] = mapped_column(String(16))
+    visibility: Mapped[str] = mapped_column(String(16), default='team')
+    version: Mapped[int] = mapped_column(default=0)
+    source_revision: Mapped[int] = mapped_column(default=0)
+    content: Mapped[str] = mapped_column(Text, default='{}')
+    created_at: Mapped[str] = mapped_column(String(40))
+    updated_at: Mapped[str] = mapped_column(String(40))
+
+
 class CreationMaterial(Base):
     __tablename__ = 'creation_materials'
     id: Mapped[str] = mapped_column(String(36), primary_key=True)

@@ -14,6 +14,24 @@ def _has(text: str, pattern: str) -> bool:
     return bool(re.search(pattern, text, flags=re.IGNORECASE | re.DOTALL))
 
 
+def _affirmative_matches(text: str, pattern: str):
+    """Ignore explicit prohibitions, stopping their scope at a new clause.
+
+    This is a lexical check, not an interpretation of arbitrary English. In
+    particular, 'do not recreate from scratch' must not mean 'recreate'.
+    """
+    for match in re.finditer(pattern, text, flags=re.IGNORECASE):
+        prefix = re.split(r'[.!?;:\n,]|\b(?:but|however|then|instead|and)\b',
+                          text[:match.start()], flags=re.IGNORECASE)[-1]
+        if re.search(r"\b(?:do\s+not|don['’]t|must\s+not|should\s+not|never|without|avoid|no)\b(?!\s+only\b)[^.\n]{0,100}$",
+                     prefix, flags=re.IGNORECASE):
+            continue
+        if re.match(r'\s+(?:is|are)\s+(?:forbidden|prohibited|not allowed)\b',
+                    text[match.end():], flags=re.IGNORECASE):
+            continue
+        yield match
+
+
 def lint_prompt(text: str, route: str = 'general') -> list[dict]:
     """Ported from scripts/lint_product_prompt.py: text-detectable risks only."""
     issues: list[dict] = []
@@ -21,7 +39,8 @@ def lint_prompt(text: str, route: str = 'general') -> list[dict]:
     def add(severity: str, message: str) -> None:
         issues.append({'severity': severity, 'message': message})
 
-    placeholders = sorted(set(re.findall(r'\[[^\]\n]{1,100}\]', text)))
+    placeholders = sorted({value for value in re.findall(r'\[[^\]\n]{1,100}\]', text)
+                           if not re.fullmatch(r'\[\s*-?\d+(?:\.\d+)?(?:\s*,\s*-?\d+(?:\.\d+)?)*\s*\]', value)})
     if placeholders:
         add('error', f'Unfilled bracket variables: {", ".join(placeholders[:8])}')
     if _has(text, r'exact (same )?(sellable )?sku|strict product identity') and not _has(text, r'reference\s*1|product identity reference'):
@@ -29,16 +48,22 @@ def lint_prompt(text: str, route: str = 'general') -> list[dict]:
     if route == 'local-edit':
         if not _has(text, r'\bedit only\b'):
             add('warning', "Local-edit route normally begins with 'Edit only [precise target]'.")
-        if _has(text, r'\bfrom scratch\b|\bentirely new\b|\bcompletely redesign\b'):
+        if any(_affirmative_matches(text, r'\bfrom scratch\b|\bentirely new\b|\bcompletely redesign\b')):
             add('error', 'Local-edit route conflicts with a from-scratch or full-redesign instruction.')
     if route == 'main-image':
         if _has(text, r'\b(add|include|place)\b[^.\n]{0,50}\b(text|badge|watermark|border|logo|person|prop)\b'):
             add('error', 'Main-image route asks to add an element that is commonly non-compliant; confirm platform rules and remove it when inappropriate.')
         if not _has(text, r'white background|rgb\s*\(?255\s*,\s*255\s*,\s*255\)?'):
             add('warning', 'Main-image route does not state a clean white background; confirm the target platform requirement.')
-    environment_change = _has(text, r'replace only the background|replace the background|transform only the sky|change the sky|new environment')
-    environment_lock = _has(text, r'do not change (the )?(background|sky|environment)|preserve (the )?(background|sky|environment) exactly')
-    if environment_change and environment_lock:
+    environment_changes = {match.group('target').lower() for match in _affirmative_matches(text,
+        r'\b(?:replace|transform|change)\s+(?:only\s+)?(?:the\s+)?(?P<target>background|sky|environment)\b')}
+    if any(_affirmative_matches(text, r'\bnew environment\b')):
+        environment_changes.add('environment')
+    environment_locks = {match.group(1).lower() for match in re.finditer(
+        r'\bdo not change (?:the )?(background|sky|environment)\b', text, re.IGNORECASE)}
+    environment_locks.update(match.group('target').lower() for match in _affirmative_matches(text,
+        r'\bpreserve (?:the )?(?P<target>background|sky|environment) exactly\b'))
+    if environment_changes & environment_locks:
         add('error', 'The prompt both changes and locks the background, sky, or environment.')
     if route == 'finished-image':
         sections = (

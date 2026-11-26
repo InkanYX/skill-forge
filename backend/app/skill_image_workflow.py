@@ -174,8 +174,11 @@ def review(store, owner, directory: Path, requirements: str, prompt: str, refere
     try:
         image = (directory / 'preview.jpg') if (directory / 'preview.jpg').is_file() else directory / 'result.png'
         direction = profile.get('visual_style') if profile else None
+        main_image = bool(profile and profile.get('shot_role') == 'main-image')
         style_review = ('\n本次确认的视觉规范：' + json.dumps(direction, ensure_ascii=False)
-            + '\n逐项检查风格、构图、文字密度与可读性；单图不能证明整套构图有变化，标记该项需整套人工检查。') if direction else ''
+            + ('\n按主图职责检查适用的风格与构图。' if main_image else '\n逐项检查风格、构图、文字密度与可读性；单图不能证明整套构图有变化，标记该项需整套人工检查。')) if direction else ''
+        if main_image:
+            style_review += '\n图型优先：本图是 Listing 商品套图主图，仅检查产品完整展示、结构保真、构图与光影；不得要求增加广告文案或套用附图/A+文字排版。新增标题、卖点、图标、徽章、水印、边框、人物和非售卖道具应标记返工；产品本身已有真实标识保留。背景依确认图需，不强制白底。'
         raw = _vision(url, key, model, image.read_bytes(), REVIEW_INSTRUCTIONS
                       + '\n用户制作要求：' + requirements + '\n实际提示词：' + prompt + style_review, reference=reference,
                       parameters=profile.get('review_parameters', {}) if profile else store.parameters(owner, 'vision'))

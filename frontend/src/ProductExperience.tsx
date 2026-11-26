@@ -4,6 +4,7 @@ import { useUnsavedChanges } from './useCreationProject';
 import type { LearningFeedback } from './creativeApi';
 
 export interface DrawingExperience {
+  owner_id?:string;can_edit?:boolean;author?:{id:string;name:string};
   id: string; revision: number; guidance: string; market: string; purpose: string; style: string;
   status?: 'candidate' | 'active' | 'disabled'; updated_at?: string;
   reuse_scope?:'product'|'category'|'global';category?:string;image_type?:'any'|'listing'|'a_plus'|'detail';device?:'any'|'desktop'|'mobile';portable_confirmed?:boolean;

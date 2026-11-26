@@ -157,10 +157,11 @@ def test_members_can_share_feedback_but_cannot_activate_others_product(accounts)
     assert product_response.status_code == 201, product_response.text
     source = product_response.json()
     root = '/api/product-experience/'+source['id']
-    assert second.get(root).status_code == 200
-    assert second.post(root,json={'guidance':'不应允许','status':'active'}).status_code == 403
+    assert second.get(root).status_code == 404
+    assert second.post(root,json={'guidance':'不应允许','status':'active'}).status_code == 404
     assert first.post(root,json={'guidance':'作者确认的经验','status':'active'}).status_code == 201
-    assert second.get(root).json()['experiences'][0]['guidance'] == '作者确认的经验'
+    assert second.get(root).status_code == 404
+    assert first.get(root).json()['experiences'][0]['guidance'] == '作者确认的经验'
 
 
 def test_actual_planner_receives_guidance_and_image_execution_preserves_confirmed_prompt(project_setup, monkeypatch):

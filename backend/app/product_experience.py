@@ -12,6 +12,7 @@ from app.authorization import owner_view, require_edit
 from app.database import CreativeCase, CreationProject, ImageJob, ProductImageExperience
 from app.image_jobs import now
 from app.learning_feedback import read_learning, LearningSettings
+from app.team_libraries import experience_rows, author, evidence_current
 
 
 def job_product(session, job):
@@ -87,6 +88,12 @@ class SummaryInput(BaseModel):
     feedback: dict[str, int] = Field(min_length=1, max_length=30)
 
 
+class AdoptTeamExperience(BaseModel):
+    request_id: UUID
+    product_id: UUID
+    revision: int = Field(ge=1)
+
+
 class SuggestedRule(Rule):
     feedback_ids: list[str] = Field(min_length=1, max_length=30)
 
@@ -159,8 +166,40 @@ def build_experience_router(store):
     def library(request: Request):
         if store.engine is None: raise HTTPException(503,'数据库未配置。')
         with Session(store.engine) as session:
-            rows=list(session.scalars(select(ProductImageExperience).where(ProductImageExperience.owner_id==request.state.image_owner).order_by(ProductImageExperience.updated_at.desc()).limit(500)))
-            return {'experiences':[{**experience_view(row,session),'product_name':session.get(CreationProject,row.product_id).title} for row in rows if session.get(CreationProject,row.product_id)]}
+            products=CreationProject.__table__
+            names=dict(session.execute(select(products.c.id,products.c.title)).all())
+            values=[]
+            for row in experience_rows(session):
+                if row.product_id not in names: continue
+                content=json.loads(row.content)
+                values.append({'sources':[],'market':'','purpose':'','style':'',**content,'id':row.id,'product_id':row.product_id,'owner_id':row.owner_id,
+                    'can_edit':row.owner_id==request.state.image_owner,'author':author(session,row.owner_id),
+                    'product_name':names[row.product_id],'evidence_current':evidence_current(session,content),
+                    'status':row.status,'revision':row.revision,'created_at':row.created_at,'updated_at':row.updated_at})
+            return {'experiences':values}
+
+    @router.post('/library/{experience_id}/adopt',status_code=201)
+    def adopt_team(experience_id:UUID,value:AdoptTeamExperience,request:Request):
+        if store.engine is None: raise HTTPException(503,'数据库未配置。')
+        with Session(store.engine) as session,session.begin():
+            target=product(session,value.product_id,request)
+            source=next((row for row in experience_rows(session) if row.id==str(experience_id)),None)
+            if not source: raise HTTPException(404,'团队经验不存在。')
+            if source.revision!=value.revision: raise HTTPException(409,'经验已更新，请刷新后重新采用。')
+            existing=session.get(ProductImageExperience,str(value.request_id))
+            provenance={'id':source.id,'revision':source.revision,'author_id':source.owner_id}
+            if existing:
+                if existing.product_id!=target.id or json.loads(existing.content).get('team_experience')!=provenance:
+                    raise HTTPException(409,'提交标识已被使用。')
+                return experience_view(existing)
+            content=json.loads(source.content)
+            if source.status=='disabled' or not evidence_current(session,content):
+                raise HTTPException(409,'经验已停用或来源反馈已变化，请由作者重新确认。')
+            content.update(sources=[],team_experience=provenance,portable_confirmed=False,reuse_scope='product')
+            row=ProductImageExperience(id=str(value.request_id),owner_id=request.state.image_owner,product_id=target.id,
+                content=json.dumps(content,ensure_ascii=False),status='candidate',revision=1,created_at=now(),updated_at=now())
+            session.add(row);session.flush()
+            return experience_view(row)
 
     @router.get('/{identifier}/export')
     def export_learning(identifier: UUID, request: Request):

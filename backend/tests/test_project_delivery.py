@@ -32,6 +32,12 @@ def submitted(setup):
         shot['size']='1464x600'
         shot['copy']='Headline: Backyard living\nNote: Furniture not included.'
     prompts=project['documents']['prompts']['content']
+    # These are A+ desktop modules, not the first product-only Listing image.
+    updated=client.put('/api/creation-projects/'+project['id'],json={
+        **project['settings'],'title':project['title'],'revision':project['revision'],
+        'learning':{**project['settings']['learning'],'image_type':'a_plus'},'skill':project['skill']})
+    assert updated.status_code==200,updated.text
+    project=updated.json()
     project=confirm(client,edit(client,project,'brief',{'shots':shots}),'brief')
     project=confirm(client,edit(client,project,'prompts',prompts),'prompts')
     result=client.post('/api/creation-projects/'+project['id']+'/generate',json={

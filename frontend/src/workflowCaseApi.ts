@@ -3,6 +3,7 @@ import type { Project, ProjectDocument, Stage } from './creationProjectApi';
 import type { ImageRecord } from './imageTaskApi';
 
 export interface WorkflowCase {
+  author?:{id:string;name:string};
   id:string; project_id:string; title:string; summary:string; created_at:string;
   image_count:number; material_count:number; can_edit:boolean;
   snapshot?: {

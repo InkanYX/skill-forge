@@ -58,22 +58,28 @@ def process_standard_one(store, executor=execute_cli, preparer=None, reviewer=No
             reference = [reference] + [(directory / f'reference-{index}.png').read_bytes() for index in range(2, len(profile['reference_manifest']) + 1)]
         requirements = prompt
         apply_skill = bool(profile.get('skill_workflow')) and not profile.get('prepared_by_agent')
-        if not apply_skill and not profile.get('prepared_by_agent'):
+        apply_revision = bool(profile.get('revision_context')) and not profile.get('revision_prepared')
+        if not apply_revision and not apply_skill and not profile.get('prepared_by_agent'):
             experience = profile.get('drawing_experience', {}).get('direct', [])
             if experience:
                 prompt += '\n\n人工确认的产品作图经验（仅适用本次用途，不是产品事实，本轮明确要求优先）：\n' + '\n'.join(item['guidance'] for item in experience)
                 with Session(store.engine) as session, session.begin():
                     session.execute(update(ImageJob).where(ImageJob.id == identifier).values(prompt=prompt))
-        if apply_skill:
+        if apply_revision or apply_skill:
             with Session(store.engine) as session, session.begin():
                 session.execute(update(ImageJob).where(ImageJob.id == identifier)
                                 .values(message='正在按制作技能分析素材并整理完整提示词', updated_at=now()))
-            prompt = (preparer or prepare)(store, owner, profile, directory, requirements, reference)
+            if apply_revision:
+                from app.image_revision import prepare_revision
+                prompt = prepare_revision(store, owner, profile, directory, requirements, reference)
+                profile['revision_prepared'] = True
+            else:
+                prompt = (preparer or prepare)(store, owner, profile, directory, requirements, reference)
             with Session(store.engine) as session, session.begin():
                 session.execute(update(ImageJob).where(ImageJob.id == identifier)
-                                .values(prompt=prompt, message='制作方案已准备，正在调用图片接口', updated_at=now()))
+                                .values(prompt=prompt, execution_profile=json.dumps(profile,ensure_ascii=False), message='制作方案已准备，正在调用图片接口', updated_at=now()))
         phase = 'image'
-        if run_id and apply_skill:
+        if run_id and (apply_revision or apply_skill):
             with Session(store.engine) as session, session.begin():
                 active = session.get(AgentRun, run_id, with_for_update=True)
                 if active is None or active.status == 'cancelled':
@@ -148,6 +154,12 @@ def process_standard_one(store, executor=execute_cli, preparer=None, reviewer=No
                 'used_skills': document.get('used_skills', []), 'files': document.get('files', []),
                 'reused_preparation': document.get('reused_preparation', False)}
             break
+    revision_record = directory / 'revision-analysis.json'
+    if revision_record.is_file():
+        try:
+            result['revision_analysis'] = json.loads(revision_record.read_text(encoding='utf-8'))
+        except (OSError, ValueError):
+            pass
     if phase == 'image' and status in ('succeeded', 'failed', 'unknown'):
         from app.model_capabilities import evidence, save_evidence
         save_evidence(store, owner, 'edit' if mode == 'edit' else 'generate', profile.get('model', ''),
@@ -167,6 +179,8 @@ def process_standard_one(store, executor=execute_cli, preparer=None, reviewer=No
                     result=json.dumps({'status': status, 'message': message, 'review': result.get('agent_review')}, ensure_ascii=False), created_at=now()))
     if run_id:
         synchronize_creation(store.engine, run_id)
+    from app.team_sharing import publish_completed_job
+    publish_completed_job(store, identifier)
     return True
 
 
