@@ -1,3 +1,4 @@
+import { createRequestId } from './requestId';
 import { apiFetch } from './apiFetch';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import ExportDownload from './ExportDownload';
@@ -125,7 +126,7 @@ export default function TaskResultsPanel({ taskId, active = true, focusJobId, ba
   async function changeVersions(restore=false){
     setRemoving(true);setError('');
     try{
-      const token=restore?batchUndo:crypto.randomUUID();
+      const token=restore?batchUndo:createRequestId();
       await readTaskResponse(await apiFetch(`/api/creation-projects/${taskId}/batches/${restore?'restore/'+token:'delete'}`,{
         method:'POST',headers:{'Content-Type':'application/json'},
         ...(restore?{}:{body:JSON.stringify({batch_ids:checkedBatches,request_id:token})}),signal:AbortSignal.timeout(20000),

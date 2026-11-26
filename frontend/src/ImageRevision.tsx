@@ -1,3 +1,4 @@
+import { createRequestId } from './requestId';
 import { apiFetch } from './apiFetch';
 import TaskResultsPanel from './TaskResultsPanel';
 import ImageSizePicker from './ImageSizePicker';
@@ -38,7 +39,7 @@ export default function ImageRevision() {
   }, [sourceId, attempt]);
   async function submit(event: FormEvent) {
     event.preventDefault(); if (!source || !model || busy) return;
-    const id = requestId || crypto.randomUUID(); setRequestId(id); setBusy(true); setError('');
+    const id = requestId || createRequestId(); setRequestId(id); setBusy(true); setError('');
     const body = new FormData();
     for (const [key, value] of Object.entries({ config_id: model.config_id, model_name: model.model_name, request_id: id, source_job_id: source.id, prompt, count: String(count), size })) body.set(key, value);
     try {

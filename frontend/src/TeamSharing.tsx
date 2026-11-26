@@ -1,3 +1,4 @@
+import { createRequestId } from './requestId';
 import { useEffect, useRef, useState } from 'react';
 import { apiFetch } from './apiFetch';
 import { formatTaskTime } from './imageTaskApi';
@@ -35,7 +36,7 @@ export default function TeamSharing({route}:{route:string}){
   },[id]);
   async function adopt(index:number){
     if(!selected||!productId||adopting!==null)return;setAdopting(index);setError('');
-    const key=`${selected.id}:${selected.version}:${productId}:${index}`;adoptionIds.current[key]??=crypto.randomUUID();
+    const key=`${selected.id}:${selected.version}:${productId}:${index}`;adoptionIds.current[key]??=createRequestId();
     try{await request('/'+selected.id+'/experiences','POST',{request_id:adoptionIds.current[key],version:selected.version,product_id:productId,index});setAdopted(values=>[...values,index]);}
     catch(err){setError(err instanceof Error?err.message:'采用经验失败');}finally{setAdopting(null);}
   }
@@ -59,7 +60,7 @@ export default function TeamSharing({route}:{route:string}){
     catch(err){setError(err instanceof Error?err.message:'共享更新失败');}finally{setBusy(false);}
   }
   async function copy(){
-    if(!selected||!copyTitle.trim()||busy)return;setBusy(true);setError('');requestId.current??=crypto.randomUUID();
+    if(!selected||!copyTitle.trim()||busy)return;setBusy(true);setError('');requestId.current??=createRequestId();
     try{const value=await request<{id:string;kind:string}>('/'+selected.id+'/copy','POST',{request_id:requestId.current,title:copyTitle.trim(),version:selected.version});
       window.location.hash=`#/${value.kind==='product'?'products':value.kind==='plan'?'planning':'studio'}?project=${value.id}`;}
     catch(err){setError(err instanceof Error?err.message:'复制失败');}finally{setBusy(false);}

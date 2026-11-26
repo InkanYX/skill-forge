@@ -1,3 +1,4 @@
+import { createRequestId } from './requestId';
 import { useEffect, useRef, useState } from 'react';
 import { imageConfigRequest, type ImageConfiguration } from './imageConfigApi';
 import { materialUrl, projectRequest, type Project } from './creationProjectApi';
@@ -20,7 +21,7 @@ export default function ImageProduction({id}:{id:string}){
   const hasOutput=!!project&&(!!project.images.length||!!project.batches.length);
   const shots=project?.documents.prompts?.content.prompts||[];
   async function generate(){
-    if(!project)return;const requestId=submission.current||crypto.randomUUID();submission.current=requestId;
+    if(!project)return;const requestId=submission.current||createRequestId();submission.current=requestId;
     const value=await state.mutate(()=>projectRequest<Project>(`/${id}/generate`,'POST',{
       revision:project.revision,request_id:requestId,shot_ids:picked,image_model:model,
     }),'所选图片已提交，执行结果会显示在下方。');

@@ -1,3 +1,4 @@
+import { createRequestId } from './requestId';
 import { useRef, useState } from 'react';
 import { projectRequest, type Project } from './creationProjectApi';
 import { formatTaskTime } from './imageTaskApi';
@@ -20,7 +21,7 @@ export default function ProjectDelivery({project,model}:{project:Project;model:s
   const locked=!!busy||project.busy||project.can_edit===false;
   async function convert(){
     if(!selected)return;
-    const key='mobile:'+selected.execution_id;ids.current[key]??=crypto.randomUUID();
+    const key='mobile:'+selected.execution_id;ids.current[key]??=createRequestId();
     setBusy('mobile');setError('');
     try {
       setMobile(await projectRequest<Project>('/'+project.id+'/mobile','POST',{
@@ -30,7 +31,7 @@ export default function ProjectDelivery({project,model}:{project:Project;model:s
     finally{setBusy('');}
   }
   async function archive(){
-    ids.current.case??=crypto.randomUUID();setBusy('case');setError('');
+    ids.current.case??=createRequestId();setBusy('case');setError('');
     try {
       setArchived(await projectRequest<WorkflowCase>('/'+project.id+'/cases','POST',{
         revision:project.revision,request_id:ids.current.case,title,summary,

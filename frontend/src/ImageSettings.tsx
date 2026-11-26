@@ -1,3 +1,4 @@
+import { createRequestId } from './requestId';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { apiFetch } from './apiFetch';
 import { imageConfigRequest, type ImageConfiguration } from './imageConfigApi';
@@ -184,7 +185,7 @@ export default function ImageSettings() {
           signal: AbortSignal.timeout(75000),
         });
       } else {
-        const id = ids.current[kind] || crypto.randomUUID(); ids.current[kind] = id;
+        const id = ids.current[kind] || createRequestId(); ids.current[kind] = id;
         const body = new FormData(); body.set('request_id', id); body.set('authorized', 'yes'); body.set('model_name', model);
         if (kind === 'edit' && reference) body.set('reference', reference);
         reply = await apiFetch('/api/image-configs/verify/' + kind, { method: 'POST', body, signal: AbortSignal.timeout(kind === 'vision' ? 200000 : 130000) });

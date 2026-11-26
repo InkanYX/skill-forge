@@ -1,3 +1,4 @@
+import { createRequestId } from './requestId';
 import { apiFetch } from './apiFetch';
 export interface Product {
   owner_id?: string | null; can_edit?: boolean;
@@ -14,7 +15,7 @@ export function productValues(product?: Product): Record<string, string> {
   return Object.fromEntries(Object.entries(PRODUCT_VARIABLE_FIELDS).map(([key, field]) => [key, product?.[field] || '']));
 }
 export async function uploadAsset(productId: string, file: File, kind: string): Promise<ProductAsset> {
-  const body = new FormData(); body.set('asset_id', crypto.randomUUID()); body.set('image', file); body.set('kind', kind);
+  const body = new FormData(); body.set('asset_id', createRequestId()); body.set('image', file); body.set('kind', kind);
   const response = await apiFetch(`/api/products/${productId}/assets`, { method: 'POST', body, signal: AbortSignal.timeout(60000) });
   const value = await response.json();
   if (!response.ok) throw new Error(typeof value.detail === 'string' ? value.detail : '素材上传失败，请检查文件。');

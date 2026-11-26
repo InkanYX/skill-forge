@@ -1,9 +1,10 @@
+import { createRequestId } from './requestId';
 import { useRef, useState } from 'react';
 import { apiFetch } from './apiFetch';
 import { readTaskResponse, type ImageRecord } from './imageTaskApi';
 
 export default function ImageRetry({item,onSubmitted}:{item:ImageRecord;onSubmitted:()=>void}) {
-  const requestId = useRef(crypto.randomUUID());
+  const requestId = useRef(createRequestId());
   const busy = useRef(false);
   const [submitting,setSubmitting] = useState(false);
   const [error,setError] = useState('');

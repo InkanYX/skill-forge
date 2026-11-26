@@ -1,3 +1,4 @@
+import { createRequestId } from './requestId';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { apiFetch } from './apiFetch';
 import { listModelOptions, type ModelOption } from './modelConfigApi';
@@ -35,7 +36,7 @@ export default function ImageStudio({onDraftChange,onSubmittingChange}:{onDraftC
   },[]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(()=>{if(!reference){setPreview('');return;}const url=URL.createObjectURL(reference);setPreview(url);return()=>URL.revokeObjectURL(url);},[reference]);
   async function submit(event:FormEvent){
-    event.preventDefault();if(!selected||busy)return;const id=requestId.current||crypto.randomUUID();requestId.current=id;setBusy(true);setError('');let knownRejection=false;let sent=false;
+    event.preventDefault();if(!selected||busy)return;const id=requestId.current||createRequestId();requestId.current=id;setBusy(true);setError('');let knownRejection=false;let sent=false;
     try{const form=new FormData();form.set('config_id',selected.config_id);form.set('model_name',selected.model_name);form.set('request_id',id);form.set('prompt',prompt);form.set('size',size);form.set('count',String(count));
       if(experienceProduct)form.set('experience_product_id',experienceProduct);
       if(reference)form.set('reference',reference);if(product)form.set('product',JSON.stringify({id:product.id,revision:product.revision,asset_id:assetId||null}));if(template)form.set('template',JSON.stringify({id:template.id,revision:template.revision,variables:values}));skill.append(form);

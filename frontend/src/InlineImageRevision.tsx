@@ -1,3 +1,4 @@
+import { createRequestId } from './requestId';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { apiFetch } from './apiFetch';
 import { listModelOptions, type ModelOption } from './modelConfigApi';
@@ -51,7 +52,7 @@ export default function InlineImageRevision({source, open, onClose, onDisplay, r
     busyRef.current=true;setBusy(true);setError('');let rejected=false;
     try{
       if(!request.current){
-        const body=new FormData();const id=crypto.randomUUID();
+        const body=new FormData();const id=createRequestId();
         for(const [key,value] of Object.entries({request_id:id,config_id:model!.config_id,model_name:model!.model_name,
           source_job_id:selected.id,prompt:instruction.trim(),size:selected.size,count:'1'}))body.set(key,value);
         // Omit skill overrides so the backend inherits the source's frozen skill and evidence.

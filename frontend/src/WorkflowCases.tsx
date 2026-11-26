@@ -1,3 +1,4 @@
+import { createRequestId } from './requestId';
 import { useEffect, useRef, useState } from 'react';
 import { caseRequest, type WorkflowCase } from './workflowCaseApi';
 import { projectRequest, stageNames, type Project } from './creationProjectApi';
@@ -13,7 +14,7 @@ export default function WorkflowCases({route}:{route:string}) {
     Promise.all([caseRequest<WorkflowCase[]>(),id?caseRequest<WorkflowCase>('/'+id):Promise.resolve(undefined),projectRequest<Project[]>('?kind=product&ready=true')])
       .then(([list,detail,values])=>{if(active){setItems(list);setSelected(detail);setProducts(values);}}).catch(err=>{if(active)setError(err.message);});
     return()=>{active=false;};},[id]);
-  async function reuse(){if(!selected||!product)return;setBusy(true);setError('');requestId.current??=crypto.randomUUID();
+  async function reuse(){if(!selected||!product)return;setBusy(true);setError('');requestId.current??=createRequestId();
     try{const plan=await caseRequest<Project>('/'+selected.id+'/reuse','POST',{request_id:requestId.current,title:(selected.title+' · 参考方案').slice(0,120),product_id:product});window.location.hash='#/planning?project='+plan.id;}
     catch(err){setError(err instanceof Error?err.message:'复用失败');}finally{setBusy(false);}}
   return <section><div className="section-heading"><div><p className="eyebrow">WORKFLOW CASES</p><h2>完整案例</h2></div>{selected&&<a className="button-secondary" href="#/showcases">返回案例库</a>}</div><p className="settings-intro">团队共享案例库：所有成员可查看、下载完整流程，并为自己的产品创建参考方案。</p>

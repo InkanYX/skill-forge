@@ -1,3 +1,4 @@
+import { createRequestId } from './requestId';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { projectRequest, type Project, type Stage } from './creationProjectApi';
 import { startTaskPolling } from './taskPolling';
@@ -33,7 +34,7 @@ export function useCreationProject(id: string) {
   },[]);
   async function run(stage:Stage,instruction:string,options:Record<string,unknown>={}){
     if(!project)return;
-    const key=id+':'+stage+':'+JSON.stringify({instruction,options});const requestId=requestIds.current[key]||crypto.randomUUID();requestIds.current[key]=requestId;
+    const key=id+':'+stage+':'+JSON.stringify({instruction,options});const requestId=requestIds.current[key]||createRequestId();requestIds.current[key]=requestId;
     const value=await mutate(()=>projectRequest<Project>(`/${id}/stages/${stage}`,'POST',{revision:project.revision,request_id:requestId,instruction,...options}));
     if(value)delete requestIds.current[key];return value;
   }
@@ -49,7 +50,7 @@ export async function uploadProjectMaterials(project:Project,files:File[],kind:s
   let value=project;let done=0;
   for(const file of files){
     onProgress?.(done,files.length,file.name);
-    const body=new FormData();body.set('revision',String(value.revision));body.set('material_id',crypto.randomUUID());body.set('kind',kind);body.set('file',file);
+    const body=new FormData();body.set('revision',String(value.revision));body.set('material_id',createRequestId());body.set('kind',kind);body.set('file',file);
     try{value=await projectRequest<Project>(`/${value.id}/materials`,'POST',body);done++;onProgress?.(done,files.length,file.name);}
     catch(err){throw new MaterialUploadError(value,`已保存 ${done} / ${files.length} 个文件。${file.name}：${err instanceof Error?err.message:'上传失败'}。请先刷新核对已上传资料，再补传剩余文件。`);}
   }

@@ -1,3 +1,4 @@
+import { createRequestId } from './requestId';
 import { useEffect, useRef, useState } from 'react';
 import { apiFetch } from './apiFetch';
 import { useUnsavedChanges } from './useCreationProject';
@@ -47,7 +48,7 @@ export default function ProductExperience({productId,readOnly=false}:{productId:
   async function load(){try{setData(await request<ExperienceData>(productId));}catch(err){setError(err instanceof Error?err.message:'读取失败');}}
   useEffect(()=>{let active=true;setData(undefined);setPicked([]);setError('');request<ExperienceData>(productId).then(value=>{if(active)setData(value);}).catch(err=>{if(active)setError(err.message);});return()=>{active=false;};},[productId]);
   async function save(value:DrawingExperience){setError('');setNotice('');try{await request(productId+(value.id?'/'+value.id:''),value.id?'PUT':'POST',value);await load();setNotice(value.status==='active'?'作图经验已生效，后续策划会按适用范围参考。':'作图经验已保存。');return true;}catch(err){setError(err instanceof Error?err.message:'保存失败');return false;}}
-  async function summarize(){if(!data)return;setBusy(true);setError('');setNotice('');summaryId.current ||= crypto.randomUUID();try{await request(productId+'/summarize','POST',{request_id:summaryId.current,feedback:Object.fromEntries(data.feedback.filter(item=>picked.includes(item.id)).map(item=>[item.id,item.revision]))});summaryId.current=undefined;await load();setNotice('经验建议已生成，请检查、修改并确认生效。');}catch(err){setError(err instanceof Error?err.message:'整理失败');}finally{setBusy(false);}}
+  async function summarize(){if(!data)return;setBusy(true);setError('');setNotice('');summaryId.current ||= createRequestId();try{await request(productId+'/summarize','POST',{request_id:summaryId.current,feedback:Object.fromEntries(data.feedback.filter(item=>picked.includes(item.id)).map(item=>[item.id,item.revision]))});summaryId.current=undefined;await load();setNotice('经验建议已生成，请检查、修改并确认生效。');}catch(err){setError(err instanceof Error?err.message:'整理失败');}finally{setBusy(false);}}
   return <section className="guided-card product-experience" aria-label="产品作图经验"><header><div><h3>作图经验</h3><p>从图片反馈积累此产品的做法。仅已生效且证据未变化的经验用于后续策划；已确认提示词保留原文。跨产品复用需明确确认范围。</p><a href="#/learning">打开作图经验库</a>{!readOnly&&<> · <a href={'/api/product-experience/'+productId+'/export'}>导出本产品学习数据 JSON</a></>}</div></header>
     {error&&<p className="feedback feedback-error" role="alert">{error} <button type="button" className="button-secondary" disabled={busy} onClick={()=>void load()}>刷新经验</button></p>}{notice&&<p className="feedback feedback-success" role="status">{notice}</p>}
     {!data&&!error&&<p role="status">正在读取作图经验…</p>}

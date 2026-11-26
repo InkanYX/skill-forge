@@ -1,3 +1,4 @@
+import { createRequestId } from './requestId';
 import { useEffect, useRef, useState } from 'react';
 import { apiFetch } from './apiFetch';
 import type { DrawingExperience } from './ProductExperience';
@@ -9,7 +10,7 @@ export default function ExperienceLibrary(){
   useEffect(()=>{let active=true;projectRequest<Project[]>('?kind=product').then(value=>{if(active)setProducts(value);}).catch(()=>{});return()=>{active=false;};},[]);
   async function adopt(item:DrawingExperience){
     if(!product)return;setAdopting(item.id);setError('');
-    const key=`${item.id}:${item.revision}:${product}`;adoptionIds.current[key]??=crypto.randomUUID();
+    const key=`${item.id}:${item.revision}:${product}`;adoptionIds.current[key]??=createRequestId();
     try{const response=await apiFetch('/api/product-experience/library/'+item.id+'/adopt',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({request_id:adoptionIds.current[key],product_id:product,revision:item.revision})});
       const result=await response.json();if(!response.ok)throw new Error(result.detail||'采用失败');setNotice('已加入目标产品的待确认经验，确认后参与作图。');setRetry(n=>n+1);
     }catch(err){setError(err instanceof Error?err.message:'采用失败');}finally{setAdopting('');}
