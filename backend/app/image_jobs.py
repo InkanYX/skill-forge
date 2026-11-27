@@ -391,9 +391,13 @@ def create_jobs(engine, directory, config_id, model_name, prompt, size, request_
 
 def process_one(engine, directory: Path, provider=generate_image) -> bool:
     # A timed-out lease is never put back on the paid-request queue.
+    from app.image_scheduler import eligible_image_jobs, lock_image_claims
     with Session(engine) as session, session.begin():
+        lock_image_claims(session)
         session.execute(update(ImageJob).where(ImageJob.status == "running", ImageJob.lease_until < time.time()).values(status="unknown", message="Worker 中断或执行超过时限，请核对服务商记录；未自动重试。", updated_at=now(), lease_until=None, encrypted_key=""))
-        row = session.scalar(select(ImageJob).where(ImageJob.status == "queued", ImageJob.execution_profile == "{}").order_by(ImageJob.created_at).limit(1).with_for_update(skip_locked=True))
+        candidates = eligible_image_jobs(session, standard=False)
+        if candidates is None: return False
+        row = session.scalar(candidates.limit(1).with_for_update(skip_locked=True))
         if row is None:
             return False
         row.status, row.message, row.updated_at = "running", "服务商正在生成图片，请稍候", now()
@@ -624,7 +628,7 @@ def build_image_router(engine, directory: Path, image_configs=None):
             if row is None:
                 raise HTTPException(404, '图片记录不存在。')
             require_edit(row)
-            if row.status in ('queued', 'running', 'unknown'):
+            if row.status in ('queued', 'running', 'paused', 'unknown'):
                 raise HTTPException(409, '请先等待任务结束并确认结果，再删除图片。')
             row.deleted_at = row.deleted_at or now()
             return {'id': row.id, 'deleted': True, 'recoverable': True}

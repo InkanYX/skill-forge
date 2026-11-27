@@ -1,6 +1,7 @@
 from alembic import context
 
 from app.database import Base, database_url, make_engine
+from app import market_insights  # Register market tables in migration metadata.
 
 target_metadata = Base.metadata
 

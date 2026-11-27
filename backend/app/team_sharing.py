@@ -124,7 +124,7 @@ def ensure_default_shares(session, identifiers, refresh_completed=False):
     storage=STORAGE.get(session.get_bind())
     for identifier in identifiers:
         project=session.get(CreationProject,identifier)
-        if not project or not project.owner_id or not session.get(UserAccount,project.owner_id): continue
+        if not project or project.deleted_at or not project.owner_id or not session.get(UserAccount,project.owner_id): continue
         share=session.scalar(select(TeamProjectShare).where(TeamProjectShare.project_id==project.id).with_for_update())
         if not share:
             share=TeamProjectShare(id=str(uuid4()),project_id=project.id,owner_id=project.owner_id,title=project.title,
@@ -189,7 +189,7 @@ def build_team_router(store):
     router=APIRouter(prefix='/api/team-shares',tags=['team-sharing'])
     def load(session,identifier,owner,manage=False):
         row=session.get(TeamProjectShare,str(identifier),with_for_update=manage)
-        if not row or row.visibility!='team' and row.owner_id!=owner: raise HTTPException(404,'共享项目不存在。')
+        if not row or row.visibility=='deleted' or row.visibility!='team' and row.owner_id!=owner: raise HTTPException(404,'共享项目不存在。')
         if manage and row.owner_id!=owner: raise HTTPException(403,'只有作者可以管理共享版本。')
         return row
     def require_db():
@@ -200,6 +200,7 @@ def build_team_router(store):
         require_db()
         with Session(store.engine) as session:
             query=select(TeamProjectShare).where(TeamProjectShare.owner_id==request.state.image_owner if mine else TeamProjectShare.visibility=='team')
+            query=query.where(TeamProjectShare.visibility!='deleted')
             if q.strip(): query=query.where(TeamProjectShare.title.icontains(q.strip(),autoescape=True))
             if author: query=query.where(TeamProjectShare.owner_id==author)
             if kind: query=query.where(TeamProjectShare.kind==kind)

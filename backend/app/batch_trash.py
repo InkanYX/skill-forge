@@ -50,7 +50,7 @@ def build_batch_trash_router(store):
                 if expanded == targets: break
                 targets = expanded
             rows = [j for j in jobs if j.id in targets and not j.deleted_at]
-            if any(j.status in ('queued', 'running', 'unknown') for j in rows):
+            if any(j.status in ('queued', 'running', 'paused', 'unknown') for j in rows):
                 raise HTTPException(409, '所选版本含正在执行或结果待确认的图片，请核对结果后删除。')
             stamp = now()
             for job in rows: job.deleted_at = stamp

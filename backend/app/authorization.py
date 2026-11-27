@@ -24,6 +24,15 @@ def owner_view(row):
 
 
 @event.listens_for(Session, 'do_orm_execute')
+def hide_deleted_projects(state):
+    if not state.is_select or state.execution_options.get('include_deleted_projects'):
+        return
+    from app.database import CreationProject
+    state.statement = state.statement.options(with_loader_criteria(
+        CreationProject, lambda row: row.deleted_at.is_(None), include_aliases=True))
+
+
+@event.listens_for(Session, 'do_orm_execute')
 def isolate_personal_reads(state):
     """Apply to entities, counts, nested queries and primary-key/file lookups alike.
 

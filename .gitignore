@@ -10,6 +10,7 @@ __pycache__/
 data/
 .sites-runtime/
 .cache/
+.lan-runtime/
 *.log
 .DS_Store
 *.pem

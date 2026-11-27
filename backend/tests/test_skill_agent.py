@@ -14,6 +14,33 @@ from app.skill_store import ImportRejected, parse_frontmatter
 from test_skill_packages import setup, archive, import_preview
 
 
+def test_response_design_check_continues_with_draft_and_stops_when_complete(setup, tmp_path):
+    engine,directory,_,snapshot=imported(setup)
+    calls=[]
+    def provider(messages,tools):
+        calls.append(messages)
+        if len(calls)==1: return {'content':'{"design":"incomplete"}'}
+        assert 'incomplete' in json.dumps(messages)
+        assert '补全逐张设计' in json.dumps(messages,ensure_ascii=False)
+        return {'content':'{"design":"complete"}'}
+    reply,trace=plan_with_skills(engine,directory,tmp_path/'design-run',snapshot,'使用技能。',{},provider,
+        response_check=lambda text: None if json.loads(text)['design']=='complete' else '补全逐张设计')
+    assert json.loads(reply)['design']=='complete'
+    assert len(calls)==2 and trace['completion_continuations']==1
+
+
+def test_response_design_check_is_bounded(setup, tmp_path):
+    engine,directory,_,snapshot=imported(setup)
+    calls=[]
+    def provider(messages,tools):
+        calls.append(messages)
+        return {'content':'{"design":"incomplete"}'}
+    with pytest.raises(GenerationError,match='逐张设计方案补全两轮'):
+        plan_with_skills(engine,directory,tmp_path/'design-failed',snapshot,'使用技能。',{},provider,
+            response_check=lambda text:'仍需补全逐张设计')
+    assert len(calls)==3
+
+
 def imported(setup):
     engine, directory = setup
     data = archive({

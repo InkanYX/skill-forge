@@ -93,6 +93,23 @@ def inherit_companions(snapshot: dict, previous: dict) -> dict:
     return {**snapshot, 'companions': [old.get(item['skill_id'], item) for item in snapshot.get('companions', [])]}
 
 
+def refresh_builtin_snapshot(engine, directory: Path, owner, snapshot: dict) -> dict:
+    """Explicit upgrade only; retain scope, personal versions and archived snapshots."""
+    def refresh(item):
+        if not item:
+            return item
+        with Session(engine) as session:
+            package = session.get(SkillPackage, item['skill_id'])
+            builtin = package is not None and package.source == 'builtin'
+        return select_skill(engine, directory, owner, {'skill_id': item['skill_id']}) if builtin else dict(item)
+    result = dict(snapshot)
+    result['primary'] = refresh(snapshot.get('primary'))
+    for key in ('catalog', 'companions'):
+        if key in snapshot:
+            result[key] = [refresh(item) for item in snapshot[key]]
+    return result
+
+
 def run_snapshot(engine, directory, run, prompt=None, source_job_id=None):
     previous = {}
     with Session(engine) as session:

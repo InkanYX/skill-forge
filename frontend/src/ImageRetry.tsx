@@ -30,7 +30,7 @@ export default function ImageRetry({item,onSubmitted}:{item:ImageRecord;onSubmit
     {created?<p role="status">重试记录已保存。<a href={'#/library?job='+created.id}>查看重试进度 →</a></p>:<>
       {uncertain ? <>
         {!confirming ? <button type="button" className="button-secondary" onClick={()=>setConfirming(true)}>核对后重新生成</button> : <div className="image-retry-confirmation">
-          <p>服务商超时，原请求可能已经生成或计费。请先查看服务商任务与账单；找到可用图片时请勿重复提交。</p>
+          <p>服务商报错、超时或连接中断，原请求可能已经生成或计费。请先查看服务商任务与账单；找到可用图片时请勿重复提交。</p>
           <label><input type="checkbox" checked={checked} disabled={submitting} onChange={event=>setChecked(event.target.checked)}/>我已核对服务商生成与计费记录，未找到可用图片，并确认重新生成可能产生新的费用。</label>
           <div className="guided-actions"><button type="button" className="button-secondary" disabled={!checked||submitting} onClick={()=>void retry()}>{submitting?'正在提交…':'确认重新生成'}</button><button type="button" className="button-secondary" disabled={submitting} onClick={()=>{setConfirming(false);setChecked(false);setError('');}}>取消</button></div>
         </div>}

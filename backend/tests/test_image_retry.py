@@ -226,3 +226,69 @@ def test_other_owner_cannot_retry_private_connection(project_setup):
     with Session(engine) as session, session.begin():
         session.get(ImageJob, first).owner_id = str(uuid4())
     assert retry(client, first).status_code == 403
+
+
+def test_inline_revision_unknown_retry_stays_in_batch_and_unblocks_creation(project_setup, monkeypatch):
+    client, store, engine, directory, _ = project_setup
+    source = submitted(project_setup)
+    assert process_standard_one(store, executor)
+    assert process_standard_one(store, executor)
+    root = source['images'][0]
+    values = {'config_id': root['config_id'], 'model_name': root['model_name'],
+        'request_id': str(uuid4()), 'source_job_id': root['id'], 'prompt': '只调整排版', 'count': '1'}
+    response = client.post('/api/image-jobs/batch', files={key:(None,value) for key,value in values.items()})
+    assert response.status_code == 202, response.text
+    edit = response.json()[0]
+    monkeypatch.setattr('app.image_revision.prepare_revision', lambda *args: 'Prepared edit prompt')
+    def uncertain(*args):
+        raise GenerationError('服务商返回 HTTP 500', True, diagnostic={'http_status':500})
+    assert process_standard_one(store, uncertain)
+    with Session(engine) as session:
+        run_id = session.get(ImageJob, edit['id']).agent_run_id
+        assert session.get(AgentRun, run_id).status == 'unknown'
+    assert retry(client, edit['id']).status_code == 409
+    original = client.get('/api/image-jobs/'+edit['id']).json()
+    response = retry(client, edit['id'], provider_checked=True)
+    assert response.status_code == 202, response.text
+    replacement = response.json()
+    assert retry(client, edit['id'], provider_checked=True).json()['id'] == replacement['id']
+    assert replacement['parent_job_id'] == root['id']
+    assert replacement['task_id'] == edit['task_id']
+    assert replacement['prompt'] == original['prompt'] == 'Prepared edit prompt'
+    assert artifact(directory, replacement['id'], 'reference.png').read_bytes() == artifact(directory, edit['id'], 'reference.png').read_bytes()
+    with Session(engine) as session:
+        assert session.get(ImageJob, replacement['id']).agent_run_id == run_id
+        assert session.get(AgentRun, run_id).status == 'waiting_images'
+    assert process_standard_one(store, executor, reviewer=lambda *args, **kwargs: {'status':'passed', 'checks':[], 'summary':'通过'})
+    with Session(engine) as session:
+        assert session.get(AgentRun, run_id).status == 'needs_review'
+        assert session.get(AgentRun, run_id).image_calls == 2
+        assert session.get(ImageJob, edit['id']).status == 'unknown'
+    assert client.get('/api/image-jobs/'+edit['id']).json() == original
+    current = client.get('/api/creation-projects/'+source['id']).json()
+    assert current['batches'] == source['batches']
+    history = client.get('/api/image-jobs/'+root['id']+'/revisions').json()['items']
+    assert {item['id'] for item in history} == {root['id'], edit['id'], replacement['id']}
+    assert retry(client, edit['id'], provider_checked=True).status_code == 409
+    # A completed replacement unlocks the next modification on this same card.
+    values.update(request_id=str(uuid4()), source_job_id=replacement['id'], prompt='继续调整背景')
+    response = client.post('/api/image-jobs/batch', files={key:(None,value) for key,value in values.items()})
+    assert response.status_code == 202, response.text
+
+
+def test_skill_retry_failure_can_retry_again_and_sync_latest_attempt(workflow):
+    client, store, engine, directory, *_ = workflow
+    images, _ = submit(workflow)
+    assert process_standard_one(store, fail)
+    first = retry(client, images[0]['id'])
+    assert first.status_code == 202, first.text
+    assert first.json()['task_id'] == images[0]['task_id']
+    assert process_standard_one(store, fail)
+    assert retry(client, images[0]['id']).status_code == 409
+    second = retry(client, first.json()['id'])
+    assert second.status_code == 202, second.text
+    assert process_standard_one(store, executor)
+    with Session(engine) as session:
+        run = session.get(AgentRun, images[0]['task_id'])
+        assert run.status == 'needs_review'
+        assert run.image_calls == 7

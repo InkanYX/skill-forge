@@ -469,6 +469,10 @@ def seed_builtin(engine, directory: Path, source_root: Path | None = None, level
                 current = session.get(SkillVersion, package.current_version_id) if package.current_version_id else None
                 if current and current.content_sha256 == fingerprint:
                     continue
+                # An installed but inactive release must not be duplicated on every startup.
+                if session.scalar(select(SkillVersion).where(SkillVersion.skill_id == package.id,
+                                                              SkillVersion.content_sha256 == fingerprint)):
+                    continue
             if package is None:
                 package = SkillPackage(id=str(uuid4()), name=candidate['name'],
                                        description=candidate['description'], source='builtin',

@@ -83,7 +83,7 @@ def test_every_image_has_pinned_skill_and_preparation_is_reused_but_review_is_pe
     images, values = submit(workflow, count=2, reference=png())
     first = images[0]
     skill = first['execution_profile']['skill_workflow']['primary']
-    assert skill['name'] == 'premium-product-image-workflow' and skill['version'] == '2.5.3'
+    assert skill['name'] == 'premium-product-image-workflow' and skill['version'] == '2.6.0'
     assert {item['task_id'] for item in images} == {first['task_id']}
     assert process_standard_one(store, fake_executor)
     assert process_standard_one(store, fake_executor)
@@ -91,7 +91,7 @@ def test_every_image_has_pinned_skill_and_preparation_is_reused_but_review_is_pe
     assert len(captured['reviews']) == 2
     for item in images:
         result = client.get('/api/image-jobs/' + item['id']).json()
-        assert result['status'] == 'succeeded'
+        assert result['status'] == 'succeeded', result.get('error')
         assert result['prompt'].startswith('Task and selling objective:')
         assert result['execution_result']['agent_review']['status'] == 'passed'
         files = directory / 'image-jobs' / item['id']

@@ -150,7 +150,10 @@ class ImageConfigStore:
             if not supplied and (not row or validated.base_url != row.base_url or not previous):
                 raise HTTPException(422, '请填写此服务商的 API Key；密钥只在当前服务运行期间保管。')
             key = supplied or previous
-            changed = not row or row.base_url != validated.base_url or (supplied is not None and supplied != previous)
+            credentials_changed = supplied is not None and supplied != previous
+            # Restoring an ephemeral key after restart must preserve queued jobs'
+            # configuration revision. A known live key change still invalidates it.
+            changed = not row or row.base_url != validated.base_url or (previous is not None and credentials_changed)
             image_changed = changed or bool(row and any(field in data.model_fields_set and getattr(row, field) != getattr(data, field) for field in ('model_name', 'generation_path', 'edit_path')))
             image_changed = image_changed or bool(row and 'request_parameters' in data.model_fields_set and json.loads(row.request_parameters or '{}') != data.request_parameters)
             paths_changed = bool(row and any(field in data.model_fields_set and getattr(row, field) != getattr(data, field) for field in ('generation_path', 'edit_path')))
@@ -162,13 +165,13 @@ class ImageConfigStore:
             capabilities = json.loads(row.capabilities or '{}')
             settings = json.loads(row.model_settings or '{}')
             for entry in settings.values():
-                if changed: entry['capabilities'] = {}
+                if changed or credentials_changed: entry['capabilities'] = {}
                 elif paths_changed:
                     for operation in ('generate', 'edit'): entry.get('capabilities', {}).pop(operation, None)
             switching = 'model_name' in data.model_fields_set and row.model_name != data.model_name
             if switching:
                 capabilities = dict(settings.get(data.model_name, {}).get('capabilities', {}))
-            if changed: capabilities = {}
+            if changed or credentials_changed: capabilities = {}
             elif image_changed and not switching:
                 for operation in ('generate', 'edit'): capabilities.pop(operation, None)
             if switching and 'request_parameters' in data.model_fields_set and settings.get(data.model_name, {}).get('request_parameters', {}) != data.request_parameters:

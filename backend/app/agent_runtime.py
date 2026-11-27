@@ -617,6 +617,9 @@ def delivery_status(engine, run_id: str, images=None) -> tuple[str, str]:
             images = list(session.scalars(select(ImageJob).where(ImageJob.agent_run_id == run_id)))
     if not images:
         return 'failed', '任务未生成图片，不能标记为制作成功。请查看执行步骤并补充制作要求。'
+    # Retain historical attempts for auditing; only their latest replacements determine delivery.
+    replaced = {json.loads(image.execution_profile or '{}').get('retry_source_job_id') for image in images}
+    images = [image for image in images if image.id not in replaced]
     if any(image.status in ('queued', 'running', 'unknown') for image in images):
         return 'unknown', '存在尚未确认的图片调用，请核对已有结果；未重复提交。'
     if any(image.status != 'succeeded' for image in images):

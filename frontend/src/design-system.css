@@ -510,6 +510,34 @@ a.creation-flow-step:hover, button.creation-flow-step:not(:disabled):hover { bac
   .production-settings > summary small { margin-left: 0; }
   .production-settings .stage-actions a { font-size: 11px; }
 }
+.plan-batch-delete { margin: 20px 0; }
+.plan-batch-toolbar { display:flex; align-items:center; flex-wrap:wrap; gap:12px 18px; padding:14px 18px; border:1px solid #dce5d2; border-radius:12px; background:#f4f7ee; font-size:13px; }
+.plan-batch-toolbar label, .plan-delete-checkbox { display:flex; align-items:center; gap:8px; margin:0; cursor:pointer; }
+.plan-batch-toolbar input, .plan-delete-checkbox input { width:17px; height:17px; margin:0; accent-color:var(--primary); }
+.plan-batch-toolbar small { margin-left:auto; color:var(--muted); }
+.plan-delete-button { color:#9a3f35; border:1px solid #dcb7ad; background:#fff8f5; border-radius:8px; padding:10px 14px; font:inherit; cursor:pointer; }
+.plan-delete-button:hover:not(:disabled) { background:#fae7df; border-color:#ba6e5e; }
+.plan-delete-button:disabled { opacity:.45; cursor:not-allowed; }
+.plan-delete-review { margin-top:12px; padding:20px; border:1px solid #dec6b8; background:#fffaf4; border-radius:12px; }
+.plan-delete-review p { font-size:13px; line-height:1.8; overflow-wrap:anywhere; }
+.plan-batch-delete .feedback-success { display:flex; gap:14px; align-items:center; flex-wrap:wrap; }
+.plan-batch-delete .feedback-success button { margin-left:auto; }
+.product-plan-select-card { display:flex; flex-direction:column; min-width:0; border:1px solid #dfe7d6; border-radius:12px; background:#fcfdf9; overflow:hidden; }
+.product-plan-select-card.is-selected { border-color:#749565; box-shadow:0 0 0 2px #74956525; }
+.product-plan-list .product-plan-select-card > .plan-delete-checkbox { display:flex; flex-direction:row; justify-content:flex-start; padding:12px 24px; background:#f2f6ec; font-size:12px; }
+.product-plan-select-card > .product-plan-card { flex:1; border:0; border-radius:0; }
+.plan-record-select-row { display:flex; align-items:stretch; gap:10px; }
+.plan-record-select-row > .plan-delete-checkbox { flex:0 0 auto; font-size:12px; }
+.workflow-record-table .plan-record-select-row > a { display:flex; align-items:center; justify-content:space-between; gap:16px; flex:1; min-width:0; padding:20px; border:1px solid #e3e8df; border-radius:10px; text-decoration:none; color:#405b44; background:#fdfefb; }
+.workflow-record-table .plan-record-select-row > a:hover { border-color:#adc1a2; background:#f7faf3; }
+.workflow-record-table .plan-record-select-row > a > div { min-width:0; display:grid; gap:6px; }
+.workflow-record-table .plan-record-select-row strong { overflow-wrap:anywhere; }
+@media(max-width:650px) {
+  .plan-batch-toolbar { padding:14px; gap:12px; }
+  .plan-batch-toolbar small { flex-basis:100%; margin:0; }
+  .plan-record-select-row { flex-wrap:wrap; }
+  .workflow-record-table .plan-record-select-row > a { flex-basis:100%; flex-wrap:wrap; padding:16px; }
+}
 .product-workspace-tabs { margin-bottom: 24px; }
 .product-plan-list > header { flex-wrap: wrap; gap: 16px; }
 .product-plan-list > header > div:first-child { flex: 1 1 320px; }

@@ -6,6 +6,7 @@ import { formatTaskTime } from './imageTaskApi';
 import { projectDestination, projectStatus } from './projectProgress.mjs';
 import ProductLibrary from './ProductLibrary';
 import { useWorkspaceView } from './useWorkspaceView';
+import { usePlanBatchDelete, PlanBatchDeleteBar, PlanDeleteCheckbox } from './PlanBatchDelete';
 
 export default function CreationProjectRecords({kind}:{kind:'product'|'plan'}){
   const [items,setItems]=useState<Project[]>([]);const [legacy,setLegacy]=useState<Product[]>([]);
@@ -23,6 +24,7 @@ export default function CreationProjectRecords({kind}:{kind:'product'|'plan'}){
     .sort((a,b)=>b.updated_at.localeCompare(a.updated_at));
   const sources=[...new Map(items.filter(item=>item.source?.product_id||item.source_product_id).map(item=>[item.source?.product_id||item.source_product_id,item.source?.title||'未命名产品'])).entries()];
   const visible=rows.filter(row=>(!product||items.find(item=>item.id===row.id&&(item.source?.product_id||item.source_product_id)===product))&&(applied.status==='all'||row.status===applied.status)&&`${row.title} ${row.sku} ${row.source}`.toLowerCase().includes(applied.query.toLowerCase()));
+  const deletion=usePlanBatchDelete(kind==='plan'?items.filter(item=>visible.some(row=>row.id===item.id)):[],()=>setAttempt(previous=>previous+1));
   function search(event:FormEvent){event.preventDefault();setApplied({query:query.trim(),status});}
   return <div className="workflow-record-list">
     {error&&<p className="feedback feedback-error" role="alert">{error}</p>}
@@ -37,8 +39,9 @@ export default function CreationProjectRecords({kind}:{kind:'product'|'plan'}){
         </div>
       </form>
       {kind==='product'&&<div className="library-view-switch" aria-label="产品展示方式"><button type="button" aria-pressed={view==='cards'} onClick={()=>setView('cards')}>封面卡片</button><button type="button" aria-pressed={view==='list'} onClick={()=>setView('list')}>紧凑列表</button></div>}
+      {kind==='plan'&&<PlanBatchDeleteBar state={deletion} loading={loading}/>}
       {!loading&&kind==='product'&&view==='cards'&&<ProductLibrary products={visible.flatMap(row=>{const item=items.find(item=>item.id===row.id);return item?[item]:[];})} plans={plans}/>}
-      {loading?<p role="status">正在读取记录…</p>:<div className="workflow-record-table">{visible.filter(row=>kind!=='product'||view==='list'||row.id.startsWith('legacy-')).map(row=><a key={row.id} href={row.href}><div><strong>{row.title}</strong><small>{row.sku||row.source}</small></div><span className={'workflow-record-status status-'+row.status}>{row.label}</span><span className="record-open"><time>{formatTaskTime(row.updated_at)}</time><b>{kind==='product'?'进入产品':row.status==='complete'?'查看成果':row.status==='busy'?'查看进度':'继续处理'} →</b></span></a>)}</div>}
+      {loading?<p role="status">正在读取记录…</p>:<div className="workflow-record-table">{visible.filter(row=>kind!=='product'||view==='list'||row.id.startsWith('legacy-')).map(row=>{const item=items.find(item=>item.id===row.id);return <div className="plan-record-select-row" key={row.id}>{kind==='plan'&&item?.kind==='plan'&&<PlanDeleteCheckbox project={item} state={deletion}/>}<a href={row.href}><div><strong>{row.title}</strong><small>{row.sku||row.source}</small></div><span className={'workflow-record-status status-'+row.status}>{row.label}</span><span className="record-open"><time>{formatTaskTime(row.updated_at)}</time><b>{kind==='product'?'进入产品':row.status==='complete'?'查看成果':row.status==='busy'?'查看进度':'继续处理'} →</b></span></a></div>;})}</div>}
       {!loading&&!visible.length&&!error&&<p>{rows.length?'没有匹配的记录，请调整筛选条件。':'还没有记录，点击页面上方的新建按钮开始。'}</p>}
     </section>
   </div>;

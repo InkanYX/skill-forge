@@ -37,7 +37,11 @@ def test_style_snapshot_reconfirmation_planning_jobs_archive_and_reuse(project_s
     client, store, engine, directory, _ = project_setup
     project = confirmed_project(project_setup)
     old_brief = project['documents']['brief']['content']
-    for shot in old_brief['shots']: shot['size']='1464x600'
+    for index, shot in enumerate(old_brief['shots']):
+        shot['size']='1464x600'
+        shot['design']={'style':'editorial','composition':'产品位于左侧，占画面六成' if index==0 else '细节居中放大，证据居右',
+            'camera':'平视全景' if index==0 else '侧面近景','depth':'庭院前中后景' if index==0 else '结构证据与背景分层',
+            'lighting':'左侧自然光突出材质','typography':'右侧自然留白，主标题与说明分层','rationale':'非对称杂志排版，逐张改变景别与图文位置'}
     old_prompts = project['documents']['prompts']['content']
     old_analysis_id = project['documents']['analysis']['id']
     root = '/api/creation-projects/' + project['id']

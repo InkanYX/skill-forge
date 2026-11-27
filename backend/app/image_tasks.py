@@ -14,7 +14,7 @@ from app.database import ImageJob, CreativeCase, AgentRun, ImageConfiguration, C
 from app.creation_conversations import conversation_id, conversation_key, latest_turns
 from app.image_batches import visible_batches
 
-STATES = ('queued', 'running', 'succeeded', 'failed', 'unknown', 'cancelled')
+STATES = ('queued', 'running', 'paused', 'succeeded', 'failed', 'unknown', 'cancelled')
 
 
 def task_key():
@@ -24,6 +24,7 @@ def task_key():
 def task_status(counts):
     if counts.get('running'): return 'running'
     if counts.get('queued'): return 'queued'
+    if counts.get('paused'): return 'paused'
     if counts.get('unknown'): return 'unknown'
     if counts.get('succeeded') == counts['total']: return 'succeeded'
     if counts.get('cancelled') == counts['total']: return 'cancelled'
@@ -89,7 +90,7 @@ def build_task_router(engine, job_view):
 
     @router.get('')
     def list_tasks(page: Annotated[int, Query(ge=1, le=100000)] = 1, page_size: Annotated[int, Query(ge=1, le=24)] = 8,
-                   status: Literal['all', 'queued', 'running', 'succeeded', 'partial', 'failed', 'unknown', 'cancelled', 'needs_review', 'needs_changes', 'limit_reached'] = 'all',
+                   status: Literal['all', 'queued', 'running', 'paused', 'succeeded', 'partial', 'failed', 'unknown', 'cancelled', 'needs_review', 'needs_changes', 'limit_reached'] = 'all',
                    q: Annotated[str, Query(max_length=200)] = '', product_id: UUID | None = None, template_id: UUID | None = None,
                    favorite: bool = False, has_notes: bool = False):
         require_db()
@@ -107,7 +108,7 @@ def build_task_router(engine, job_view):
             .group_by(heads.c.id, roots.c.created_at, heads.c.status, heads.c.goal)
         grouped = union_all(direct, assisted).subquery()
         state = case((grouped.c.agent_status.is_not(None) & (grouped.c.agent_status != 'waiting_images'), grouped.c.agent_status),
-                     (grouped.c.running > 0, 'running'), (grouped.c.queued > 0, 'queued'), (grouped.c.unknown > 0, 'unknown'),
+                     (grouped.c.running > 0, 'running'), (grouped.c.queued > 0, 'queued'), (grouped.c.paused > 0, 'paused'), (grouped.c.unknown > 0, 'unknown'),
                      (grouped.c.succeeded == grouped.c.total, 'succeeded'), (grouped.c.cancelled == grouped.c.total, 'cancelled'),
                      (grouped.c.succeeded > 0, 'partial'), else_='failed')
         conditions = []

@@ -2,13 +2,14 @@ import { useEffect, useRef, useState } from 'react';
 import TeamSourceNotice from './TeamSourceNotice';
 import { CreationSkillPicker, useCreationSkill } from './CreationSkillContext';
 import { imageConfigRequest, type ImageConfiguration } from './imageConfigApi';
-import { projectRequest, type Project } from './creationProjectApi';
+import { projectRequest, type DocumentContent, type Project } from './creationProjectApi';
 import { useCreationProject, uploadProjectMaterials, useUnsavedChanges } from './useCreationProject';
 import { ProjectFeedback, ProjectMaterials, ProjectLog, ProjectHistory } from './ProjectParts';
 import ProductExperience from './ProductExperience';
 import FileDropZone from './FileDropZone';
 import { ProductPlanList } from './ProductPlans';
 import ProductIdentity from './ProductIdentity';
+import { ProductResearch, ResearchEvidence, SellingPointRanking, rankedPointsText, AnalysisProgress } from './ProductResearch';
 
 const sizeText = (bytes:number) => bytes < 1024 ? `${bytes} B` : bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 
@@ -22,7 +23,8 @@ export default function ProductAnalysisEditor({id,route=''}:{id?:string;route?:s
   const creating=useRef(false);
   const [uploading,setUploading]=useState<{done:number;total:number}|null>(null);
   const [files,setFiles]=useState<{file:File;kind:string}[]>([]);const [pendingKind,setPendingKind]=useState('产品实拍');const [fileError,setFileError]=useState('');const created=useRef<Project|null>(null);
-  const [analysis,setAnalysis]=useState({facts:'',selling_points:'',questions:''});const [analysisDirty,setAnalysisDirty]=useState(false);
+  const [analysis,setAnalysis]=useState<DocumentContent & {facts:string;selling_points:string;questions:string}>({facts:'',selling_points:'',questions:''});const [analysisDirty,setAnalysisDirty]=useState(false);
+  const [researchDirty,setResearchDirty]=useState(false);const [refreshResearch,setRefreshResearch]=useState(false);
   const doc=project?.documents.analysis;
   const tab=new URLSearchParams(route.split('?')[1]).get('tab');
   const showingPlans=tab==='plans'||(!tab&&!!doc?.confirmed_at);
@@ -34,10 +36,11 @@ export default function ProductAnalysisEditor({id,route=''}:{id?:string;route?:s
     const preferred=[project?.settings.planning_model,config.planning_model_name].find(name=>!!name&&names.includes(name))||'';
     setPlanner(previous=>plannerTouched.current?(previous&&names.includes(previous)?previous:preferred):preferred);
   },[config,project?.id,project?.settings.planning_model]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(()=>{setAnalysis({facts:doc?.content.facts||'',selling_points:doc?.content.selling_points||'',questions:doc?.content.questions||''});setAnalysisDirty(false);},[doc?.id]);
+  useEffect(()=>{setAnalysis({...doc?.content,facts:doc?.content.facts||'',selling_points:doc?.content.selling_points||'',questions:doc?.content.questions||''});setAnalysisDirty(false);},[doc?.id]);
   const infoDirty=!!project&&(name!==project.title||sku!==(project.settings.sku||'')||goal!==project.settings.goal);
-  useUnsavedChanges(infoDirty||analysisDirty||(!id&&(!!name||!!goal||!!files.length)));
+  useUnsavedChanges(infoDirty||analysisDirty||researchDirty||(!id&&(!!name||!!goal||!!files.length)));
   const locked=busy||state.locked;
+  const marketPending=!!project?.analysis_pipeline?.materials_saved&&project.analysis_pipeline.status!=='completed'&&project.analysis_pipeline.can_resume&&!analysisDirty;
   const hasRecords=!!project&&(project.executions.some(item=>item.stage==='analysis')||project.history.some(item=>item.stage==='analysis'));
   function addFiles(list:File[]){
     if(busy)return;
@@ -69,11 +72,11 @@ export default function ProductAnalysisEditor({id,route=''}:{id?:string;route?:s
   }),'产品信息已保存。');}
   async function saveAnalysis(confirm:boolean){
     if(!project)return;let value=project;
-    if(analysisDirty||!doc){const saved=await state.mutate(()=>projectRequest<Project>(`/${value.id}/documents/analysis`,'PUT',{revision:value.revision,content:analysis}),'分析结果已保存。');if(!saved)return;value=saved;setAnalysisDirty(false);}
+    if(analysisDirty||!doc){const {research_snapshot:_serverSnapshot,...content}=analysis;const saved=await state.mutate(()=>projectRequest<Project>(`/${value.id}/documents/analysis`,'PUT',{revision:value.revision,content}),'分析结果已保存。');if(!saved)return;value=saved;setAnalysisDirty(false);}
     if(confirm)await state.mutate(()=>projectRequest<Project>(`/${value.id}/documents/analysis/confirm`,'POST',{revision:value.revision}),'产品卖点已确认，可以建立图片策划方案。');
   }
-  async function analyze(){
-    try{const body=new FormData();skill.append(body);const value=await state.run('analysis',instruction,{planning_model:planner,skill:JSON.parse(String(body.get('skill')))});if(value)setInstruction('');}
+  async function analyze(resume=false){
+    try{const body=new FormData();if(!resume)skill.append(body);const value=await state.run('analysis',instruction,{planning_model:planner,skill:resume?project?.skill:JSON.parse(String(body.get('skill'))),refresh_research:resume?false:refreshResearch,resume_analysis:resume});if(value){setInstruction('');setRefreshResearch(false);}}
     catch(err){state.setError(err instanceof Error?err.message:'分析设置无效');}
   }
   return <div className="guided-studio"><ProjectFeedback error={error||state.error} notice={state.notice} loading={state.loading} busy={busy||state.busy} working={!!project?.busy} dirty={infoDirty||analysisDirty} updatedAt={project?.updated_at} onRefresh={()=>void state.refresh()}/>{project&&<TeamSourceNotice project={project}/>}
@@ -88,7 +91,9 @@ export default function ProductAnalysisEditor({id,route=''}:{id?:string;route?:s
       <section className="guided-card" id="product-info"><header><h3>产品信息</h3></header><fieldset disabled={locked}><div className="guided-form-grid"><label>产品名称<input maxLength={120} value={name} onChange={e=>setName(e.target.value)}/></label><label>SKU<input maxLength={100} value={sku} onChange={e=>setSku(e.target.value)}/></label></div><label>产品说明<textarea rows={4} maxLength={12000} value={goal} onChange={e=>setGoal(e.target.value)}/></label><button type="button" className="button-secondary" disabled={!infoDirty} onClick={()=>void saveInfo()}>保存产品信息</button></fieldset></section>
       <ProjectMaterials id="product-materials" project={project} locked={locked||infoDirty||analysisDirty} onUpload={(items,kind,onProgress)=>state.mutate(()=>uploadProjectMaterials(project,items,kind,onProgress),'资料已保存，需重新确认分析结果。')} onRemove={materialId=>void state.mutate(()=>projectRequest<Project>(`/${project.id}/materials/${materialId}?revision=${project.revision}`,'DELETE'),'资料已移除。')}/>
       </div>
+      <ProductResearch project={project} locked={locked||infoDirty||analysisDirty} onDirty={setResearchDirty} refresh={refreshResearch} onRefresh={setRefreshResearch} onSave={settings=>state.mutate(()=>projectRequest<Project>(`/${project.id}/research-settings`,'PUT',{revision:project.revision,settings}),'调研设置已保存，下次产品分析将按此范围执行。')}/>
       <section className="guided-card" id="product-analysis" tabIndex={-1}><header><h3>产品分析与卖点</h3>{doc&&<span>版本 {doc.version} · {doc.confirmed_at&&!analysisDirty?'已确认':'待确认'}</span>}</header>
+        <AnalysisProgress project={project} disabled={locked||infoDirty||analysisDirty||researchDirty||!planner||!skill.ready} onResume={()=>void analyze(true)}/>
         <div className="analysis-model">
           <span>分析模型</span>
           {config&&config.model_names.length>0?<select value={planner} disabled={locked} aria-label="分析模型" onChange={e=>{plannerTouched.current=true;setPlanner(e.target.value);}}><option value="">请选择模型</option>{config.model_names.map(model=><option key={model}>{model}</option>)}</select>:configLoading?<strong>正在读取模型…</strong>:<a className="analysis-model-link is-empty" href="#/settings">未配置模型，去配置 →</a>}
@@ -101,8 +106,14 @@ export default function ProductAnalysisEditor({id,route=''}:{id?:string;route?:s
         {!locked&&!configLoading&&!planner&&<p className="action-prerequisite">请选择分析模型；没有可选模型时，先到<a href="#/settings">个人模型配置</a>添加。</p>}
         {!locked&&!skill.ready&&<p className="action-prerequisite">制作技能尚未就绪，可展开上方“技能设置”检查，或到<a href="#/skills">技能库</a>添加并启用。</p>}
         {analysisDirty&&<p className="action-prerequisite">分析结果有未保存修改，先保存或确认结果，再重新分析。</p>}
-        <div className="guided-actions"><button type="button" className="button-primary" disabled={locked||infoDirty||analysisDirty||!planner||!skill.ready||(!project.materials.length&&!goal.trim())} onClick={()=>void analyze()}>{project.busy?'正在分析…':doc?'按要求重新分析':'分析产品，提炼卖点'}</button></div>
-        {(doc||analysisDirty)&&<fieldset disabled={locked}>{([{key:'facts',label:'产品事实与来源'},{key:'selling_points',label:'候选卖点与依据'},{key:'questions',label:'待确认问题'}] as const).map(field=><label key={field.key}>{field.label}<textarea rows={field.key==='questions'?3:7} value={analysis[field.key]} onChange={e=>{setAnalysis(previous=>({...previous,[field.key]:e.target.value}));setAnalysisDirty(true);}}/></label>)}<div className="guided-actions"><button type="button" className="button-secondary" disabled={!analysisDirty} onClick={()=>void saveAnalysis(false)}>保存修改</button><button type="button" className="button-primary" disabled={infoDirty||!analysis.facts.trim()||!analysis.selling_points.trim()} onClick={()=>void saveAnalysis(true)}>确认产品卖点</button></div></fieldset>}
+        {researchDirty&&<p className="action-prerequisite">市场调研范围有未保存修改，请先保存调研设置。</p>}
+        <div className="guided-actions"><button type="button" className="button-primary" disabled={locked||infoDirty||analysisDirty||researchDirty||!planner||!skill.ready||(!project.materials.length&&!goal.trim())} onClick={()=>void analyze()}>{project.busy?'正在分析…':project.research_settings?.enabled?'调研并提炼产品卖点':doc?'按要求重新分析':'分析产品，提炼卖点'}</button></div>
+        {analysis.market_summary&&<div className="research-market-summary"><h4>市场与买家需求洞察</h4><p style={{whiteSpace:'pre-wrap'}}>{analysis.market_summary}</p></div>}
+        {!!analysis.ranked_selling_points?.length&&<SellingPointRanking points={analysis.ranked_selling_points} report={analysis.research_snapshot} materials={project.materials} projectId={project.id} locked={locked} onChange={points=>{setAnalysis(previous=>({...previous,ranked_selling_points:points,selling_points:rankedPointsText(points)}));setAnalysisDirty(true);}}/>}
+        {analysis.research_snapshot&&<ResearchEvidence report={analysis.research_snapshot}/>}
+        {!analysis.research_snapshot&&project.market_research&&<><p className="feedback feedback-warning">调研资料已保留，尚未绑定到当前分析。完成本轮分析后，再确认卖点。</p><ResearchEvidence report={project.market_research}/></>}
+        {marketPending&&<p className="action-prerequisite">以下资料卖点已保存，评论分析尚未完成，请点击“继续未完成分析”。如要采用人工结论，可编辑并保存新的卖点版本。</p>}
+        {(doc||analysisDirty)&&<fieldset disabled={locked}>{([{key:'facts',label:'产品事实与来源'},{key:'selling_points',label:'候选卖点与依据'},{key:'questions',label:'待确认问题'}] as const).map(field=><label key={field.key}>{field.label}<textarea rows={field.key==='questions'?3:7} value={analysis[field.key]} onChange={e=>{setAnalysis(previous=>({...previous,[field.key]:e.target.value}));setAnalysisDirty(true);}}/></label>)}<div className="guided-actions"><button type="button" className="button-secondary" disabled={!analysisDirty} onClick={()=>void saveAnalysis(false)}>保存修改</button><button type="button" className="button-primary" disabled={marketPending||infoDirty||!analysis.facts.trim()||!analysis.selling_points.trim()} onClick={()=>void saveAnalysis(true)}>确认产品卖点</button></div></fieldset>}
         {!doc&&!analysisDirty&&<details><summary>手动录入已确认的产品事实和卖点</summary><button type="button" disabled={locked} onClick={()=>setAnalysisDirty(true)}>开始填写</button></details>}
       </section>
       <p className="section-divider">后续参考 · 用于之后的策划与直接创作</p>

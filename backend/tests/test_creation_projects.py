@@ -120,6 +120,99 @@ def test_stage_runs_are_durable_and_duplicate_requests_are_not_reexecuted(projec
     assert len(client.get('/api/creation-projects').json()) == 1
 
 
+def test_analysis_continues_in_same_conversation_to_read_all_30_materials(project_setup, monkeypatch):
+    client, store, engine, directory, project = project_setup
+    for index in range(30):
+        project = upload(client, project, filename=f'product-{index}.png')
+    materials = project['materials']
+    calls = []
+    result = {'facts': '综合全部实拍确认结构', 'selling_points': '遮阳空间', 'questions': ''}
+
+    def chat(base_url, key, model, messages, tools, **kwargs):
+        calls.append(messages)
+        if len(calls) == 1:
+            return {'tool_calls': [{'id': f'view-{item["id"]}', 'type': 'function', 'function': {
+                'name': 'view_material', 'arguments': json.dumps({'material_id': item['id']})}} for item in materials[:13]]}
+        if len(calls) == 2:
+            return {'content': json.dumps(result, ensure_ascii=False)}  # premature final
+        # The continuation is the third provider call; the fourth is its final result.
+        if len(calls) == 3:
+            history = json.dumps(messages, ensure_ascii=False)
+            assert '已读 13/30 份' in history
+            assert '综合全部实拍确认结构' in history
+            assert materials[0]['id'] in history
+            assert 'data:image/jpeg;base64,' in history
+            return {'tool_calls': [{'id': f'view-{item["id"]}', 'type': 'function', 'function': {
+                'name': 'view_material', 'arguments': json.dumps({'material_id': item['id']})}} for item in materials[13:]]}
+        return {'content': json.dumps(result, ensure_ascii=False)}
+
+    monkeypatch.setattr('app.agent_runtime._chat', chat)
+    url = f'/api/creation-projects/{project["id"]}'
+    identifier = str(uuid4())
+    assert client.post(url + '/stages/analysis', json={'revision': project['revision'], 'request_id': identifier}).status_code == 202
+    # Focus this regression on real material tools rather than automatic skill selection.
+    with Session(engine) as session, session.begin():
+        execution = session.get(CreationExecution, identifier)
+        payload = json.loads(execution.input)
+        payload['skill_snapshot']['pinned'] = [payload['skill_snapshot']['primary']['skill_id']]
+        execution.input = json.dumps(payload)
+    assert process_creation_one(store)
+    saved = client.get(url).json()
+    with Session(engine) as session:
+        execution = session.get(CreationExecution, identifier)
+        assert execution.status == 'succeeded', execution.error
+        trace = json.loads(execution.output)['trace']
+        assert trace['completion_continuations'] == 1
+        assert {row['material_id'] for row in trace['materials']} == {item['id'] for item in materials}
+    assert saved['documents']['analysis']['content'] == result
+    assert len(calls) == 4
+    run_dir = directory / 'creation-projects' / project['id'] / 'executions' / identifier
+    assert (run_dir / 'planning-draft-1.json').is_file()
+    assert len(json.loads((run_dir / 'material-read-log.json').read_text(encoding='utf-8'))) == 30
+
+
+def test_analysis_missing_materials_has_bounded_continuations_and_keeps_drafts(project_setup, monkeypatch):
+    client, store, engine, directory, project = project_setup
+    project = upload(client, project)
+    calls = []
+    def chat(*args, **kwargs):
+        calls.append(args)
+        return {'content': json.dumps({'facts': '未读取', 'selling_points': '', 'questions': ''})}
+    monkeypatch.setattr('app.agent_runtime._chat', chat)
+    identifier = str(uuid4())
+    url = f'/api/creation-projects/{project["id"]}'
+    assert client.post(url + '/stages/analysis', json={'revision': project['revision'], 'request_id': identifier}).status_code == 202
+    assert process_creation_one(store)
+    with Session(engine) as session:
+        execution = session.get(CreationExecution, identifier)
+        assert execution.status == 'failed'
+        assert '补读两轮后仍未读齐' in execution.error
+        assert '已读 0/1 份' in execution.error
+    assert len(calls) == 3
+    run_dir = directory / 'creation-projects' / project['id'] / 'executions' / identifier
+    assert len(list(run_dir.glob('planning-draft-*.json'))) == 3
+    assert client.get(url).json()['documents']['analysis'] is None
+
+
+def test_analysis_provider_failure_does_not_trigger_coverage_retries(project_setup, monkeypatch):
+    from app.image_provider import GenerationError
+    client, store, engine, directory, project = project_setup
+    project = upload(client, project)
+    calls = []
+    def chat(*args, **kwargs):
+        calls.append(args)
+        raise GenerationError('模拟上游请求超时，未自动重发')
+    monkeypatch.setattr('app.agent_runtime._chat', chat)
+    identifier = str(uuid4())
+    url = f'/api/creation-projects/{project["id"]}'
+    assert client.post(url + '/stages/analysis', json={'revision': project['revision'], 'request_id': identifier}).status_code == 202
+    assert process_creation_one(store)
+    assert len(calls) == 1
+    with Session(engine) as session:
+        execution = session.get(CreationExecution, identifier)
+        assert execution.status == 'failed' and '模拟上游请求超时' in execution.error
+
+
 def test_upstream_changes_invalidate_only_affected_documents_and_keep_history(project_setup):
     client, store, engine, directory, _ = project_setup
     project = confirmed_project(project_setup)

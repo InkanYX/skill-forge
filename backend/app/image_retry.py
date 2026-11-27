@@ -3,11 +3,11 @@ import json
 from uuid import UUID, uuid5
 
 from fastapi import HTTPException
-from sqlalchemy import select, func
+from sqlalchemy import select, func, JSON, cast, type_coerce
 from sqlalchemy.orm import Session
 
 from app.authorization import require_edit
-from app.database import ImageJob, CreationProject, CreationExecution
+from app.database import ImageJob, CreationProject, CreationExecution, AgentRun
 from app.image_jobs import artifact, now, view
 from app.image_batches import normalize_batches, replace_batch_job
 
@@ -42,15 +42,45 @@ def retry_job(engine, directory, configs, source_id, request_id, owner, provider
         data = json.loads(project.content) if project else None
         batches = normalize_batches(data.get('batches', [])) if project else []
         source_batch = next((batch for batch in batches if source_id in batch['job_ids']), None)
-        task_id = (source.task_id or source.request_id) if project else request_id
+        task_id = (source.task_id or source.request_id) if project or source.agent_run_id else request_id
         # Serialize on the source row; double clicks with different request IDs reuse the pending retry.
-        for item in session.scalars(select(ImageJob).where(ImageJob.owner_id == source.owner_id, ImageJob.status.in_(['queued', 'running', 'unknown']))):
+        retry_profile = (type_coerce(ImageJob.execution_profile, JSON) if engine.dialect.name == 'sqlite'
+            else cast(ImageJob.execution_profile, JSON))
+        for item in session.scalars(select(ImageJob).where(ImageJob.owner_id == source.owner_id,
+            ImageJob.deleted_at.is_(None), retry_profile['retry_source_job_id'].as_string() == source_id)):
             if json.loads(item.execution_profile or '{}').get('retry_source_job_id') == source_id:
                 if item.status == 'unknown':
                     raise HTTPException(409, '已有重试结果待确认，请先核对该次记录和服务商计费，未重复下单。')
-                return view(item)
-        if project and source_batch is None:
+                if item.status in ('queued', 'running', 'paused'):
+                    return view(item)
+                raise HTTPException(409, '此图片已有后续重试，请选择最新重试记录继续操作。')
+        # Inline edits belong to the original product batch without replacing its root slot.
+        revision_batch = None
+        if project and source_batch is None and source.parent_job_id:
+            ancestor_id, seen = source.parent_job_id, {source.id}
+            while ancestor_id and ancestor_id not in seen:
+                seen.add(ancestor_id)
+                ancestor = session.get(ImageJob, ancestor_id)
+                if ancestor is None or ancestor.owner_id != source.owner_id:
+                    break
+                revision_batch = next((batch for batch in batches if ancestor.id in batch['job_ids']
+                    or any(ancestor.id in history for history in batch.get('retry_history', {}).values())), None)
+                if revision_batch:
+                    break
+                ancestor_id = ancestor.parent_job_id
+        if project and source_batch is None and revision_batch is None:
             raise HTTPException(409, '此图片已有后续重试或缺少来源版本，请从原版本当前图片入口重试。')
+        run = session.get(AgentRun, source.agent_run_id, with_for_update=True) if source.agent_run_id else None
+        if run:
+            if run.owner_id != owner:
+                raise HTTPException(403, '请由原创作账号重试。')
+            from app.creation_conversations import conversation_id, conversation_key
+            latest = session.scalar(select(AgentRun).where(conversation_key() == conversation_id(run))
+                .order_by(AgentRun.turn_index.desc()).limit(1))
+            if latest and latest.id != run.id:
+                raise HTTPException(409, '此创作已有后续修改，请查看最新修改记录后操作。')
+            if run.status in ('queued', 'running'):
+                raise HTTPException(409, '原创作仍在执行，请等待当前任务结束后重试。')
         current = configs.snapshot(owner, source.config_id)
         if any(current.get(key) != profile.get(key) for key in ('base_url', 'generation_path', 'edit_path')):
             raise HTTPException(409, '服务商地址或接口路径已改变，请确认后重新提交，不能自动更换接口重试。')
@@ -77,7 +107,7 @@ def retry_job(engine, directory, configs, source_id, request_id, owner, provider
             if profile.get('skill_execution'):
                 profile['skill_execution'] = {**profile['skill_execution'], 'reused_preparation': True}
         if project:
-            profile['creation_execution_id'] = source_batch['execution_id']
+            profile['creation_execution_id'] = (source_batch or revision_batch)['execution_id']
             profile['retry_execution_id'] = request_id
         identifier = str(uuid5(UUID(request_id), 'retry-image'))
         target_dir = artifact(directory, identifier, 'result.png').parent
@@ -102,10 +132,14 @@ def retry_job(engine, directory, configs, source_id, request_id, owner, provider
             task_id=task_id, task_index=(session.scalar(select(func.max(ImageJob.task_index)).where(ImageJob.task_id == task_id)) or 0) + 1,
             template_snapshot=source.template_snapshot, product_snapshot=source.product_snapshot,
             parent_job_id=source.parent_job_id, edit_instruction=source.edit_instruction,
+            agent_run_id=source.agent_run_id,
             set_id=source.set_id, set_name=source.set_name, shot_name=source.shot_name, shot_index=source.shot_index,
             execution_profile=json.dumps(profile, ensure_ascii=False))
         session.add(row)
-        if project:
+        if run:
+            run.status, run.summary, run.error = 'waiting_images', '图片重试已排队，沿用本轮修改记录。', ''
+            run.updated_at, run.finished_at = now(), None
+        if source_batch:
             index = source_batch['job_ids'].index(source_id)
             shot_ids = [source_batch['shot_ids'][index]] if len(source_batch.get('shot_ids', [])) == len(source_batch['job_ids']) else []
             batch_result = {'job_ids': [identifier], 'shot_ids': shot_ids, 'retry_source_job_id': source_id}

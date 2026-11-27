@@ -35,6 +35,8 @@ from app.product_experience import build_experience_router
 from app.project_delivery import build_delivery_router
 from app.team_sharing import build_team_router
 from app.batch_trash import build_batch_trash_router
+from app.plan_trash import build_plan_trash_router
+from app.market_insights import build_market_router, MarketWorker
 
 VERSION = "0.1.0"
 
@@ -66,10 +68,13 @@ def create_app(data_dir: Path | None = None, probe=probe_models, db_url: str | N
         worker = StandardWorker(image_store) if standard_enabled and engine and start_image_worker else None
         agent_worker = AgentWorker(engine, directory, image_store) if standard_enabled and engine and start_image_worker else None
         creation_worker = CreationWorker(image_store) if standard_enabled and engine and start_image_worker else None
+        market_worker = MarketWorker(engine) if engine and start_image_worker else None
         if worker: worker.start()
         if agent_worker: agent_worker.start()
         if creation_worker: creation_worker.start()
+        if market_worker: market_worker.start()
         yield
+        if market_worker: market_worker.stop()
         if creation_worker: creation_worker.stop()
         if agent_worker: agent_worker.stop()
         if worker: worker.stop()
@@ -97,7 +102,7 @@ def create_app(data_dir: Path | None = None, probe=probe_models, db_url: str | N
         new_token = not re.fullmatch(r'[A-Za-z0-9_-]{43}', token)
         if new_token: token = secrets.token_urlsafe(32)
         request.state.image_owner = user['id'] if user else hashlib.sha256(token.encode()).hexdigest()
-        if request.url.path.startswith(("/api/team-shares", "/api/auth", "/api/admin", "/api/image-configs", "/api/model-configs", "/api/image-jobs", "/api/templates", "/api/cases", "/api/products", "/api/skills", "/api/skill-packages", "/api/agent", "/api/workspace", "/api/creation-projects", "/api/product-experience", "/api/workflow-cases")):
+        if request.url.path.startswith(("/api/market-insights", "/api/team-shares", "/api/auth", "/api/admin", "/api/image-configs", "/api/model-configs", "/api/image-jobs", "/api/templates", "/api/cases", "/api/products", "/api/skills", "/api/skill-packages", "/api/agent", "/api/workspace", "/api/creation-projects", "/api/product-experience", "/api/workflow-cases")):
             origin = request.headers.get("origin")
             allowed = set(filter(None,os.environ.get("SKILL_FORGE_ALLOWED_ORIGINS", "").split(","))) | {f"http://{host}:{port}" for host in ("localhost", "127.0.0.1") for port in (5173, 8000)}
             if origin and origin not in allowed:
@@ -112,7 +117,7 @@ def create_app(data_dir: Path | None = None, probe=probe_models, db_url: str | N
             if (request.url.path.startswith("/api/image-jobs") or asset_upload or image_verification or package_import or agent_upload or creation_upload) and request.method == "POST" and (content_type != "multipart/form-data" or not length.isdecimal() or int(length) > 21 * 1024 * 1024):
                 return JSONResponse(status_code=413, content={"detail": "请使用不超过 20 MB 的参考图片或技能包提交。"})
             bodyless_post = request.method == 'POST' and (not length.isdecimal() or int(length) == 0)
-            if not asset_upload and not image_verification and not package_import and not agent_upload and not creation_upload and not bodyless_post and request.url.path.startswith(("/api/team-shares", "/api/auth", "/api/admin", "/api/image-configs", "/api/model-configs", "/api/templates", "/api/cases", "/api/products", "/api/skills", "/api/skill-packages", "/api/agent", "/api/creation-projects", "/api/product-experience", "/api/workflow-cases")) and request.method in ("POST", "PUT") and (content_type != "application/json" or not length.isdecimal() or int(length) > 512000):
+            if not asset_upload and not image_verification and not package_import and not agent_upload and not creation_upload and not bodyless_post and request.url.path.startswith(("/api/market-insights", "/api/team-shares", "/api/auth", "/api/admin", "/api/image-configs", "/api/model-configs", "/api/templates", "/api/cases", "/api/products", "/api/skills", "/api/skill-packages", "/api/agent", "/api/creation-projects", "/api/product-experience", "/api/workflow-cases")) and request.method in ("POST", "PUT") and (content_type != "application/json" or not length.isdecimal() or int(length) > 512000):
                 return JSONResponse(status_code=415, content={"detail": "请使用 JSON 请求。"})
         context_token = principal.set(user if auth_enabled else None)
         try:
@@ -121,7 +126,7 @@ def create_app(data_dir: Path | None = None, probe=probe_models, db_url: str | N
             principal.reset(context_token)
         if not auth_enabled and new_token and request.url.path.startswith(('/api/image-configs', '/api/creation-projects')):
             response.set_cookie('sf_image_session', token, httponly=True, samesite='strict', max_age=31536000)
-        if request.url.path.startswith(("/api/team-shares", "/api/auth", "/api/admin", "/api/image-configs", "/api/model-configs", "/api/image-jobs", "/api/templates", "/api/cases", "/api/products", "/api/skills", "/api/skill-packages", "/api/agent", "/api/workspace", "/api/creation-projects", "/api/product-experience", "/api/workflow-cases")):
+        if request.url.path.startswith(("/api/market-insights", "/api/team-shares", "/api/auth", "/api/admin", "/api/image-configs", "/api/model-configs", "/api/image-jobs", "/api/templates", "/api/cases", "/api/products", "/api/skills", "/api/skill-packages", "/api/agent", "/api/workspace", "/api/creation-projects", "/api/product-experience", "/api/workflow-cases")):
             response.headers["Cache-Control"] = "no-store"
         return response
 
@@ -156,11 +161,13 @@ def create_app(data_dir: Path | None = None, probe=probe_models, db_url: str | N
     application.include_router(build_agent_router(engine, directory, image_store))
     application.include_router(build_workspace_router(engine, image_store))
     application.include_router(build_product_router(engine, directory))
+    application.include_router(build_plan_trash_router(image_store))
     application.include_router(build_creation_router(image_store))
     application.include_router(build_experience_router(image_store))
     application.include_router(build_delivery_router(image_store))
     application.include_router(build_team_router(image_store))
     application.include_router(build_batch_trash_router(image_store))
+    application.include_router(build_market_router(engine))
     router = APIRouter(prefix="/api")
 
     @router.get("/system/status", tags=["system"])

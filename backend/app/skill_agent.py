@@ -36,6 +36,7 @@ from app.skill_store import TEXT_SUFFIXES, _read_capped, parse_frontmatter, safe
 
 MAX_CALLS = 20
 MAX_READ_CHARS = 160000
+MAX_COMPLETION_CONTINUATIONS = 2
 
 
 class ProviderModel(BaseChatModel):
@@ -113,6 +114,12 @@ class ReadOnlySkills(FilesystemBackend):
             return ReadResult(error='该技能不在本次可用范围，请使用技能目录中已列出的技能。')
         if PurePosixPath(file_path).suffix.lower() not in TEXT_SUFFIXES:
             return ReadResult(error='当前只开放技能文本读取；脚本和二进制资源未启用执行。')
+        # Tool defaults may paginate the entry before its mandatory appendix ends.
+        # Supply the mounted entry in one read; ordinary resources remain paginated.
+        entry = self.entries.get(file_path) or next(
+            (item for item in self.entries.values() if item.get('source_entry') == file_path), None)
+        if entry and entry.get('required_context') and offset == 0:
+            limit = 2000
         try:
             result = super().read(file_path, offset, min(limit, 2000))
         except (ValueError, OSError):
@@ -198,7 +205,8 @@ def mount_skills(engine, storage: Path, workspace: Path, snapshot: dict):
     return entries, aliases
 
 
-def plan_with_skills(engine, storage, directory, snapshot, instructions, brief, provider, extra_tools=None):
+def plan_with_skills(engine, storage, directory, snapshot, instructions, brief, provider, extra_tools=None,
+                     completion_check=None, response_check=None):
     directory.mkdir(parents=True, exist_ok=True)
     # Keep virtual filesystem paths short on Windows, independently of job nesting.
     with TemporaryDirectory(prefix='sf-skills-') as temporary:
@@ -219,11 +227,28 @@ def plan_with_skills(engine, storage, directory, snapshot, instructions, brief, 
                         SkillsMiddleware(backend=backend, sources=['/skills/'])])
         result = None
         completed = False
+        continuations = 0
         try:
             with tracing_context(enabled=False):
-                result = agent.invoke({'messages': [{'role': 'user', 'content': json.dumps(brief, ensure_ascii=False)}],
-                                       'pinned_skills': [aliases[item] for item in pinned]},
-                                      {'recursion_limit': MAX_CALLS * 2 + 4})
+                state = {'messages': [{'role': 'user', 'content': json.dumps(brief, ensure_ascii=False)}],
+                         'pinned_skills': [aliases[item] for item in pinned]}
+                while True:
+                    result = agent.invoke(state, {'recursion_limit': MAX_CALLS * 2 + 4})
+                    missing = completion_check() if completion_check is not None else None
+                    if not missing and response_check is not None:
+                        missing = response_check(result['messages'][-1].content)
+                    if not missing:
+                        break
+                    draft = result['messages'][-1].content
+                    (directory / f'planning-draft-{continuations + 1}.json').write_text(
+                        json.dumps({'response': draft, 'coverage': missing}, ensure_ascii=False, indent=2), encoding='utf-8')
+                    if continuations >= MAX_COMPLETION_CONTINUATIONS:
+                        if response_check is not None:
+                            raise GenerationError('逐张设计方案补全两轮后仍未通过检查；已保留草稿。' + missing)
+                        raise GenerationError('产品资料补读两轮后仍未读齐，未提交分析结果；已保留分析草稿和读取记录。' + missing)
+                    continuations += 1
+                    state = {'messages': [*result['messages'], {'role': 'user', 'content': missing}],
+                             'pinned_skills': [aliases[item] for item in pinned]}
             used_ids = {entry['skill_id'] for entry in backend.reads if entry.get('skill_id')}
             injected = {message.additional_kwargs.get('skill', {}).get('name') for message in result['messages']}
             if any(aliases[item] not in injected for item in pinned):
@@ -241,13 +266,14 @@ def plan_with_skills(engine, storage, directory, snapshot, instructions, brief, 
             used = [{key: value for key, value in item.items() if key not in ('content', 'alias', 'source_root', 'source_entry', 'required_context')}
                     for item in entries.values() if item['skill_id'] in used_ids]
             completed = True
-            return final, {'used_skills': used, 'files': backend.reads, 'planning_method': 'deepagents'}
+            return final, {'used_skills': used, 'files': backend.reads, 'planning_method': 'deepagents',
+                           'completion_continuations': continuations}
         except GraphRecursionError:
             raise GenerationError('技能读取达到步数上限，未提交图片请求。') from None
         finally:
             trace = {'engine': 'deepagents', 'files': backend.reads,
                      'used_skills': [{k: v for k, v in item.items() if k not in ('content', 'alias', 'source_root', 'source_entry', 'required_context')}
                                      for item in entries.values() if any(r.get('skill_id') == item['skill_id'] for r in backend.reads)],
-                     'completed': completed}
+                     'completed': completed, 'completion_continuations': continuations}
             (directory / 'skill-read-log.json').write_text(json.dumps(trace, ensure_ascii=False, indent=2), encoding='utf-8')
             (directory / 'skill-context.md').write_text('\n'.join(backend.contexts), encoding='utf-8')

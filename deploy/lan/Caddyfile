@@ -1,0 +1,27 @@
+{
+	admin off
+	auto_https off
+}
+
+http://{$SKILL_FORGE_LAN_ADDRESS}:{$SKILL_FORGE_WEB_PORT} {
+	bind {$SKILL_FORGE_LAN_ADDRESS}
+	encode gzip
+
+	log {
+		output file {$SKILL_FORGE_RUNTIME}/logs/access.log {
+			roll_size 10MiB
+			roll_keep 5
+		}
+	}
+
+	handle /api/* {
+		reverse_proxy 127.0.0.1:{$SKILL_FORGE_API_PORT}
+	}
+
+	handle {
+		root * {$SKILL_FORGE_FRONTEND_ROOT}
+		try_files {path} /index.html
+		header /index.html Cache-Control "no-cache"
+		file_server
+	}
+}

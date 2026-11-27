@@ -70,6 +70,9 @@ def mobile_prompt(shot):
         'Do not crop, stretch, shrink the desktop banner into borders, or reproduce desktop coordinates. '
         'Use a large complete scene with foreground/midground/background where appropriate; '
         'use readable large details for structural evidence and readable 2x2 steps for four-step content. '
+        'Use two vertically stacked complete views for state comparisons; place large material evidence below the scene; '
+        'organize inventory by its verified group count, never copy a past case quantity. '
+        'Check both 600-wide and 375-wide previews; wrap essential conditions instead of shrinking or omitting them. '
         'Do not turn the scene into beige cards or remove essential warnings. '
         'Check legibility at a phone display width of 375 pixels. Render all approved text in the image.\n'
         f'Topic: {shot["name"]}\nObjective: {shot.get("objective", "")}\n'
@@ -159,12 +162,19 @@ def build_delivery_router(store):
                 shot.update(size='1200x900',reference_ids=[ref_id,*identity_refs],
                     layout='手机端4:3独立重排；大主体、清晰文案、保留场景纵深；不裁切桌面横幅。原图编排意图：'+shot.get('layout',''),
                     notes='基于桌面图片 '+job.id+'，桌面图作编辑目标及风格参考，实拍作商品身份依据。')
+                if shot.get('design'):
+                    shot['design'] = {**shot['design'],
+                        'composition': '手机端4:3独立重排，大主体和易读负空间；不沿用桌面坐标。原构图意图：'+shot['design']['composition'][:950],
+                        'typography': '手机宽375像素可读，重新安排文字位置与字号，保留所有准确文案和条件。原文字层级意图：'+shot['design']['typography'][:950],
+                        'rationale': '继承桌面确认的风格与产品事实，独立适配手机端图文布局；不裁切或压缩横幅。'}
                 new_shots.append(shot)
                 style_rules = (target_data.get('visual_style_snapshot') or {}).get('rules','')
                 new_prompts.append({'shot_id':shot_id,'prompt':mobile_prompt(shot)+'\nMobile layout intent: '+shot['layout']
                     + ('\nConfirmed campaign direction (adapt layout for mobile): '+style_rules if style_rules else ''),'reference_ids':shot['reference_ids']})
             analysis = session.get(CreationDocument,docs.get('analysis',''))
             previous = {'brief':{'shots':new_shots},'prompts':{'prompts':new_prompts}}
+            from app.visual_styles import bind_design_prompts
+            previous['prompts'] = bind_design_prompts(previous['prompts'], previous['brief'], target_data.get('visual_style_snapshot'))
             if analysis: previous['analysis'] = json.loads(analysis.content)
             for stage in ('analysis','brief','prompts'):
                 if stage not in previous: continue

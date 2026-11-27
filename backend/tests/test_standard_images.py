@@ -104,6 +104,18 @@ def test_reference_edit_verified_separately_and_config_changes_invalidate(standa
     assert client.post('/api/image-configs/verify/edit',files={'request_id':(None,str(uuid4())),'authorized':(None,'yes')}).status_code==422
 
 
+def test_restoring_runtime_key_after_restart_preserves_original_queued_job(standard):
+    client, store, engine, directory = standard
+    config = save(client)
+    job = verify(client)
+    store.keys.clear()
+    assert not process_standard_one(store, lambda *args: pytest.fail('no runtime key'))
+    restored = save(client)
+    assert restored['revision'] == config['revision']
+    assert process_standard_one(store, fake_executor)
+    assert client.get('/api/image-jobs/tasks/' + job['task_id']).json()['items'][0]['status'] == 'succeeded'
+
+
 def test_unknown_and_auth_denial_never_retried_or_fallback(standard):
     client,store,engine,directory=standard
     save(client);check=verify(client,'edit')

@@ -11,6 +11,7 @@ import Workspace from './Workspace';
 import WorkflowCases from './WorkflowCases';
 import ExperienceLibrary from './ExperienceLibrary';
 import TeamSharing from './TeamSharing';
+import MarketInsights from './MarketInsights';
 import { CreationSkillProvider } from './CreationSkillContext';
 import { rememberCreation } from './resumeCreation';
 import { useStudioMotion } from './useStudioMotion';
@@ -18,6 +19,7 @@ import { saveWorkspaceScroll, useWorkspaceScroll } from './useWorkspaceView';
 
 const pages = [
   { id: 'workspace', href: '#/', title: '我的工作台' },
+  { id: 'market', href: '#/market', title: '市场洞察' },
   { id: 'products', href: '#/products', title: '产品资料' },
   { id: 'planning', href: '#/planning', title: '全部图片策划' },
   { id: 'studio', href: '#/studio', title: '图片创作' },
@@ -31,10 +33,12 @@ const pages = [
 ] as const;
 const navigationGroups = [
   { title: '创作空间', ids: ['workspace', 'products', 'planning', 'studio', 'library'] },
+  { title: '市场研究', ids: ['market'] },
   { title: '团队与积累', ids: ['showcases', 'learning', 'team', 'skills'] },
   { title: '设置', ids: ['settings', 'members'] },
 ];
 const navigationIcons: Record<string, string> = {
+  market: 'M3 3v18h18M7 15l4-5 4 3 5-8M16 5h4v4',
   workspace: 'M3 10 12 3l9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1Z',
   products: 'M12 3 3 8l9 5 9-5-9-5Zm-9 5v9l9 5 9-5V8M12 13v9M7.5 5.5l9 5',
   planning: 'M8 5H5a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1h-3M9 3h6v4H9ZM8 12h8M8 16h5',
@@ -68,6 +72,7 @@ function currentRoute() {
 }
 function currentPage() {
   const hash = currentRoute().split('?')[0];
+  if (hash === '#/market') return 'market';
   if (hash === '#/members') return 'members';
   if (hash === '#/planning') return 'planning';
   if (hash === '#/products') return 'products';
@@ -129,6 +134,7 @@ function WorkspaceApp() {
       <div className="main-shell">
         <header className="topbar"><div className="breadcrumb"><span>工作空间</span><span aria-hidden="true">/</span><strong>{page === 'edit' ? '图片创作 · 继续修改' : pages.find((item) => item.id === page)?.title}</strong></div><div className="account-controls"><span className="account-avatar" aria-hidden="true">{(user.display_name || user.username).slice(0, 1)}</span><span className="account-name">{user.display_name}<small>{user.role==='admin'?'管理员':'成员'}</small></span><button type="button" onClick={changePassword}>修改密码</button><button type="button" onClick={logout}>退出</button></div></header>
         <main id="workspace" tabIndex={-1}>
+          {page === 'market' && <MarketInsights />}
           {page === 'members' && <MemberManagement />}
           {page === 'studio' && <CreationSkillProvider><ImageCreation route={route} /></CreationSkillProvider>}
           {page === 'settings' && <ModelSettingsPage />}

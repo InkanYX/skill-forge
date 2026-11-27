@@ -2,9 +2,11 @@
 name: premium-product-image-workflow
 description: "Plan, generate, edit and review faithful ecommerce product images, complete Listing sets and Amazon A+ content. Includes evidence-backed copy, visual direction, scene templates and project resume. Use for 商品图、主图、套图、A+、手机端适配、换风格、局部修改、继续出图 and public competitor visual research. Not for PPC optimization or unrelated image art."
 metadata:
-  version: "2.5.3"
+  version: "2.6.0"
   required_references:
     - references/campaign-style.md
+    - references/aplus-scene-editorial.md
+    - references/listing-scene-editorial.md
 ---
 
 # 高保真商品图工作流 · 整合版
@@ -12,6 +14,10 @@ metadata:
 将商品资料转为可执行图需、完整成品与可恢复项目。保留用户原有的 SKU 保真与质检要求，吸收四个电商仓库的文案策略、模板、图型组织和工具思路。来源与改编边界见 [sources.md](references/sources.md)。内部模块独立运行，不要求同时加载原四套技能。
 
 ## 制作基准
+
+- 商品套图策划、逐张提示词与修图必须读取 [套图场景与证据编排](references/listing-scene-editorial.md)，主图只展示产品，附图按购买问题独立设计；沉浸场景、结构证据、尺寸、对照和步骤各有职责，不照搬 A+ 横幅与文案英雄图。
+
+- A+ 策划、逐图提示词、纠错与手机重排，必须读取 [场景画册方法](references/aplus-scene-editorial.md)：以购买问题分配模块、按职责变化构图、以原件纠正比例与遮挡，手机从最新认可版独立重排。Listing 仅借鉴适用方法，不继承 A+ 首图的文字排版；示例浅色字与细金线仅在选用该样式时应用。
 
 - 每次使用本技能，先完整读取 [套图风格](references/campaign-style.md)，包括逐张独立编写提示词时；不要仅凭入口摘要或提示词示例决定视觉方向。支持 required_references 的运行器应随入口注入该文档并记录实际加载；其他运行器需主动读取。单次任务内已完整加载时无需重复读取。
 - 套图统一品牌语言与修图质感，各图依据职责变化构图和信息组织；不默认采用示例的配色、暖白底、顶部标题带或等分卡片。用户已确认的方向优先。

@@ -144,6 +144,7 @@ class CreationProject(OwnedRecord, Base):
     title: Mapped[str] = mapped_column(String(120))
     kind: Mapped[str] = mapped_column(String(16), default='legacy', server_default='legacy', index=True)
     source_product_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    deleted_at: Mapped[str | None] = mapped_column(String(40), nullable=True)
     revision: Mapped[int] = mapped_column(default=1)
     content: Mapped[str] = mapped_column(Text, default='{}')
     created_at: Mapped[str] = mapped_column(String(40))

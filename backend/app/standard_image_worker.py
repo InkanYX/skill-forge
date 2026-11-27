@@ -9,6 +9,7 @@ from app.image_jobs import artifact, now
 from app.image_provider import GenerationError
 from app.standard_image_executor import execute_cli
 from app.skill_image_workflow import prepare, review, identity_reference
+from app.image_scheduler import GLOBAL_IMAGE_LIMIT, eligible_image_jobs, lock_image_claims
 
 
 class CancelledBeforeImage(Exception):
@@ -22,8 +23,11 @@ def process_standard_one(store, executor=execute_cli, preparer=None, reviewer=No
     for pending_run in pending_runs:
         synchronize_creation(store.engine, pending_run)
     with Session(store.engine) as session, session.begin():
+        lock_image_claims(session)
         session.execute(update(ImageJob).where(ImageJob.execution_profile != '{}', ImageJob.status == 'running', ImageJob.lease_until < time.time()).values(status='unknown', message='执行中断，结果待确认；未重复提交。', lease_until=None, updated_at=now()))
-        rows = session.scalars(select(ImageJob).where(ImageJob.execution_profile != '{}', ImageJob.status == 'queued').order_by(ImageJob.created_at).limit(100).with_for_update(skip_locked=True))
+        candidates = eligible_image_jobs(session, standard=True)
+        if candidates is None: return False
+        rows = session.scalars(candidates.limit(100).with_for_update(skip_locked=True))
         selected = None
         for row in rows:
             profile = json.loads(row.execution_profile)
@@ -79,7 +83,7 @@ def process_standard_one(store, executor=execute_cli, preparer=None, reviewer=No
                 session.execute(update(ImageJob).where(ImageJob.id == identifier)
                                 .values(prompt=prompt, execution_profile=json.dumps(profile,ensure_ascii=False), message='制作方案已准备，正在调用图片接口', updated_at=now()))
         phase = 'image'
-        if run_id and (apply_revision or apply_skill):
+        if run_id:
             with Session(store.engine) as session, session.begin():
                 active = session.get(AgentRun, run_id, with_for_update=True)
                 if active is None or active.status == 'cancelled':
@@ -191,7 +195,7 @@ def synchronize_creation(engine, run_id):
         if run is None or run.status != 'waiting_images':
             return
         jobs = list(session.scalars(select(ImageJob).where(ImageJob.agent_run_id == run_id)))
-        if any(item.status in ('queued', 'running') for item in jobs):
+        if any(item.status in ('queued', 'running', 'paused') for item in jobs):
             return
         status, message = delivery_status(engine, run_id, images=jobs)
         run.status, run.summary, run.error = status, message, '' if status == 'succeeded' else message
@@ -200,12 +204,19 @@ def synchronize_creation(engine, run_id):
 
 class StandardWorker:
     def __init__(self, store):
-        self.store = store; self.stop_event = Event(); self.thread = Thread(target=self.run, daemon=True)
+        self.store = store
+        self.stop_event = Event()
+        self.threads = [Thread(target=self.run, name=f'image-worker-{index + 1}', daemon=True)
+                        for index in range(GLOBAL_IMAGE_LIMIT)]
     def run(self):
         while not self.stop_event.is_set():
             try: worked = process_standard_one(self.store)
             except Exception: worked = False
             if not worked: self.stop_event.wait(2)
-    def start(self): self.thread.start()
+    def start(self):
+        for thread in self.threads: thread.start()
     def stop(self):
-        self.stop_event.set(); self.thread.join(timeout=2)
+        self.stop_event.set()
+        deadline = time.monotonic() + 2
+        for thread in self.threads:
+            thread.join(timeout=max(0, deadline - time.monotonic()))

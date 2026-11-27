@@ -44,14 +44,14 @@ export interface ImageTask {
 }
 export interface ImageTaskDetail extends ImageTask { items: ImageRecord[]; batches?: {execution_id:string; job_ids:string[]; created_at:string}[] }
 export interface ImageTaskPage { items: ImageTask[]; total: number; page: number; page_size: number }
-export const taskLabels: Record<string, string> = { all: '全部状态', queued: '排队中', running: '生成中', succeeded: '已完成', partial: '部分完成', failed: '生成失败', unknown: '结果待确认', cancelled: '已取消', needs_review: '待人工审核', needs_changes: '需要修改', limit_reached: '已达执行上限' };
+export const taskLabels: Record<string, string> = { all: '全部状态', queued: '排队中', running: '生成中', paused: '已暂停', succeeded: '已完成', partial: '部分完成', failed: '生成失败', unknown: '结果待确认', cancelled: '已取消', needs_review: '待人工审核', needs_changes: '需要修改', limit_reached: '已达执行上限' };
 export const kindLabels: Record<string, string> = { free: '自由创作', set: '成套制作', edit: '图片修改', skill: '图片创作' };
-export const taskPending = (task: ImageTask) => ['queued', 'running'].includes(task.status);
+export const taskPending = (task: ImageTask) => ['queued', 'running', 'paused'].includes(task.status);
 export function formatTaskTime(value: string) {
   return new Date(value).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
 export function taskCounts(task: ImageTask) {
-  return ['succeeded', 'failed', 'unknown', 'running', 'queued', 'cancelled']
+  return ['succeeded', 'failed', 'unknown', 'running', 'queued', 'paused', 'cancelled']
     .filter(status => task.counts[status] > 0).map(status => `${taskLabels[status]} ${task.counts[status]}`).join(' · ');
 }
 export async function readTaskResponse<T>(response: Response): Promise<T> {

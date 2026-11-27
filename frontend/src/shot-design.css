@@ -1,0 +1,6 @@
+.shot-design-panel{margin:24px 0;padding:22px;border:1px solid var(--border,#dce3e9);border-left:3px solid var(--accent,#127d75);border-radius:16px;background:var(--surface,#fff)}
+.shot-design-panel header small{font-size:10px;letter-spacing:.16em;color:var(--accent,#127d75)}
+.shot-design-panel h4{margin:6px 0;font-size:18px}.shot-design-panel p{color:var(--muted,#687484);font-size:13px;line-height:1.7}
+.design-style-badge{display:inline-block;padding:6px 12px;border-radius:20px;background:#e7f1ee;color:#236c5d;font-size:12px;margin-bottom:16px}
+.shot-design-panel dd{white-space:pre-wrap;overflow-wrap:anywhere}.shot-design-panel textarea{width:100%;min-width:0}.shot-design-panel .guided-form-grid{min-width:0}
+@media(max-width:600px){.shot-design-panel{padding:15px;margin:16px 0}.shot-design-panel .guided-form-grid{grid-template-columns:1fr}}
